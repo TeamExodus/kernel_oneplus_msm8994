@@ -1209,7 +1209,8 @@ unsigned int min_max_freq = 1;
 
 unsigned int max_capacity = 1024; /* max(rq->capacity) */
 unsigned int min_capacity = 1024; /* min(rq->capacity) */
-unsigned int max_load_scale_factor = 1024; /* max(rq->load_scale_factor) */
+unsigned int max_load_scale_factor = 1024; /* max possible load scale factor */
+unsigned int max_possible_capacity = 1024; /* max(rq->max_possible_capacity) */
 
 /* Window size (in ns) */
 __read_mostly unsigned int sched_ravg_window = 10000000;
@@ -1643,21 +1644,6 @@ static void update_history(struct rq *rq, struct task_struct *p,
 	if (!runtime || is_idle_task(p) || exiting_task(p) || !samples)
 			goto done;
 
-#ifdef VENDOR_EDIT
-	if (p->ravg.mitigated) {
-		/* update history accroding to previous records
-		 * e.g. 60% loading in big cluster becomes 60% in smallest one
-		 */
-		for (ridx = 0; ridx < sched_ravg_hist_size; ridx++) {
-			hist[ridx] = div64_u64((u64)hist[ridx] * 1024
-					, (u64)max_load_scale_factor);
-			sum += hist[ridx];
-			if (hist[ridx] > max)
-				max = hist[ridx];
-		}
-		goto update_demand;
-	}
-#endif
 	/* Push new 'runtime' value onto stack */
 	widx = sched_ravg_hist_size - 1;
 	ridx = widx - samples;
@@ -1675,9 +1661,6 @@ static void update_history(struct rq *rq, struct task_struct *p,
 			max = hist[widx];
 	}
 
-#ifdef VENDOR_EDIT
-update_demand:
-#endif
 	p->ravg.sum = 0;
 	if (p->on_rq)
 		p->sched_class->dec_hmp_sched_stats(rq, p);
@@ -1770,11 +1753,7 @@ static void update_task_demand(struct task_struct *p, struct rq *rq,
 	u32 window_size = sched_ravg_window;
 
 	new_window = mark_start < window_start;
-#ifdef VENDOR_EDIT
-	if (!account_busy_for_task_demand(p, event) || p->ravg.mitigated) {
-#else
 	if (!account_busy_for_task_demand(p, event)) {
-#endif
 		if (new_window)
 			/* If the time accounted isn't being accounted as
 			 * busy time, and a new window started, only the
@@ -1783,13 +1762,6 @@ static void update_task_demand(struct task_struct *p, struct rq *rq,
 			 * elapsed, but since empty windows are dropped,
 			 * it is not necessary to account those. */
 			update_history(rq, p, p->ravg.sum, 1, event);
-#ifdef VENDOR_EDIT
-		if (p->ravg.mitigated) {
-			/* force update history */
-			update_history(rq, p, 1, RAVG_HIST_SIZE_MAX, event);
-			p->ravg.mitigated = 0;
-		}
-#endif
 		return;
 	}
 
@@ -2295,25 +2267,33 @@ heavy_task_wakeup(struct task_struct *p, struct rq *rq, int event)
 #endif	/* CONFIG_SCHED_FREQ_INPUT */
 
 /* Keep track of max/min capacity possible across CPUs "currently" */
-static void update_min_max_capacity(void)
+static void __update_min_max_capacity(void)
 {
 	int i;
 	int max = 0, min = INT_MAX;
-	int max_lsf = 0;
 
-	for_each_possible_cpu(i) {
+	for_each_online_cpu(i) {
 		if (cpu_rq(i)->capacity > max)
 			max = cpu_rq(i)->capacity;
 		if (cpu_rq(i)->capacity < min)
 			min = cpu_rq(i)->capacity;
-
-		if (cpu_rq(i)->load_scale_factor > max_lsf)
-			max_lsf = cpu_rq(i)->load_scale_factor;
 	}
 
 	max_capacity = max;
 	min_capacity = min;
-	max_load_scale_factor = max_lsf;
+}
+
+static void update_min_max_capacity(void)
+{
+	int i;
+
+	for_each_possible_cpu(i)
+		raw_spin_lock(&cpu_rq(i)->lock);
+
+	__update_min_max_capacity();
+
+	for_each_possible_cpu(i)
+		raw_spin_unlock(&cpu_rq(i)->lock);
 }
 
 /*
@@ -2390,15 +2370,21 @@ static int cpufreq_notifier_policy(struct notifier_block *nb,
 		unsigned long val, void *data)
 {
 	struct cpufreq_policy *policy = (struct cpufreq_policy *)data;
-	int i;
+	int i, update_max = 0;
+	u64 highest_mpc = 0, highest_mplsf = 0;
 	const struct cpumask *cpus = policy->related_cpus;
 	unsigned int orig_min_max_freq = min_max_freq;
 	unsigned int orig_max_possible_freq = max_possible_freq;
 	/* Initialized to policy->max in case policy->related_cpus is empty! */
 	unsigned int orig_max_freq = policy->max;
 
-	if (val != CPUFREQ_NOTIFY)
+	if (val != CPUFREQ_NOTIFY && val != CPUFREQ_REMOVE_POLICY)
 		return 0;
+
+	if (val == CPUFREQ_REMOVE_POLICY) {
+		update_min_max_capacity();
+		return 0;
+	}
 
 	for_each_cpu(i, policy->related_cpus) {
 		cpumask_copy(&cpu_rq(i)->freq_domain_cpumask,
@@ -2415,11 +2401,6 @@ static int cpufreq_notifier_policy(struct notifier_block *nb,
 	min_max_freq = min(min_max_freq, policy->cpuinfo.max_freq);
 	BUG_ON(!min_max_freq);
 	BUG_ON(!policy->max);
-
-	if (orig_max_possible_freq == max_possible_freq &&
-		orig_min_max_freq == min_max_freq &&
-		orig_max_freq == policy->max)
-			return 0;
 
 	/*
 	 * A changed min_max_freq or max_possible_freq (possible during bootup)
@@ -2445,8 +2426,10 @@ static int cpufreq_notifier_policy(struct notifier_block *nb,
 	 */
 
 	if (orig_min_max_freq != min_max_freq ||
-		orig_max_possible_freq != max_possible_freq)
+		orig_max_possible_freq != max_possible_freq) {
 			cpus = cpu_possible_mask;
+			update_max = 1;
+	}
 
 	/*
 	 * Changed load_scale_factor can trigger reclassification of tasks as
@@ -2456,16 +2439,34 @@ static int cpufreq_notifier_policy(struct notifier_block *nb,
 	pre_big_small_task_count_change(cpu_possible_mask);
 	for_each_cpu(i, cpus) {
 		struct rq *rq = cpu_rq(i);
-		u64 max_possible_capacity;
 
 		rq->capacity = compute_capacity(i);
-		max_possible_capacity = div_u64(((u64) rq->capacity) *
-					rq->max_possible_freq, rq->max_freq);
-		rq->max_possible_capacity = (int) max_possible_capacity;
 		rq->load_scale_factor = compute_load_scale_factor(i);
+
+		if (update_max) {
+			u64 mpc, mplsf;
+
+			mpc = div_u64(((u64) rq->capacity) *
+				rq->max_possible_freq, rq->max_freq);
+			rq->max_possible_capacity = (int) mpc;
+
+			mplsf = div_u64(((u64) rq->load_scale_factor) *
+				rq->max_possible_freq, rq->max_freq);
+
+			if (mpc > highest_mpc)
+				highest_mpc = mpc;
+
+			if (mplsf > highest_mplsf)
+				highest_mplsf = mplsf;
+		}
 	}
 
-	update_min_max_capacity();
+	if (update_max) {
+		max_possible_capacity = highest_mpc;
+		max_load_scale_factor = highest_mplsf;
+	}
+
+	__update_min_max_capacity();
 	post_big_small_task_count_change(cpu_possible_mask);
 
 	return 0;
@@ -9905,11 +9906,6 @@ static int tg_set_cfs_bandwidth(struct task_group *tg, u64 period, u64 quota)
 	if (period > max_cfs_quota_period)
 		return -EINVAL;
 
-	/*
-	 * Prevent race between setting of cfs_rq->runtime_enabled and
-	 * unthrottle_offline_cfs_rqs().
-	 */
-	get_online_cpus();
 	mutex_lock(&cfs_constraints_mutex);
 	ret = __cfs_schedulable(tg, period, quota);
 	if (ret)
@@ -9931,11 +9927,12 @@ static int tg_set_cfs_bandwidth(struct task_group *tg, u64 period, u64 quota)
 	/* restart the period timer (if active) to handle new period expiry */
 	if (runtime_enabled && cfs_b->timer_active) {
 		/* force a reprogram */
-		__start_cfs_bandwidth(cfs_b, true);
+		cfs_b->timer_active = 0;
+		__start_cfs_bandwidth(cfs_b);
 	}
 	raw_spin_unlock_irq(&cfs_b->lock);
 
-	for_each_online_cpu(i) {
+	for_each_possible_cpu(i) {
 		struct cfs_rq *cfs_rq = tg->cfs_rq[i];
 		struct rq *rq = cfs_rq->rq;
 
@@ -9951,38 +9948,9 @@ static int tg_set_cfs_bandwidth(struct task_group *tg, u64 period, u64 quota)
 		cfs_bandwidth_usage_dec();
 out_unlock:
 	mutex_unlock(&cfs_constraints_mutex);
-	put_online_cpus();
 
 	return ret;
 }
-
-#ifdef VENDOR_EDIT
-int tg_set_cfs_quota_per_task(struct task_group *tg, long cfs_quota_us)
-{
-	struct cfs_bandwidth *cfs_b = &tg->cfs_bandwidth;
-	u64 quota, period;
-
-	period = ktime_to_ns(tg->cfs_bandwidth.period);
-	quota = tg->cfs_bandwidth.quota;
-
-	raw_spin_lock_irq(&cfs_b->lock);
-	if (cfs_quota_us > 0)
-		cfs_b->quota_per_task = (u64)cfs_quota_us * NSEC_PER_USEC;
-	raw_spin_unlock_irq(&cfs_b->lock);
-
-	return tg_set_cfs_bandwidth(tg, period, quota);
-}
-
-long tg_get_cfs_quota_per_task(struct task_group *tg)
-{
-	u64 quota_us;
-
-	quota_us = tg->cfs_bandwidth.quota_per_task;
-	do_div(quota_us, NSEC_PER_USEC);
-
-	return quota_us;
-}
-#endif
 
 int tg_set_cfs_quota(struct task_group *tg, long cfs_quota_us)
 {
@@ -10029,19 +9997,6 @@ long tg_get_cfs_period(struct task_group *tg)
 
 	return cfs_period_us;
 }
-
-#ifdef VENDOR_EDIT
-static s64 cpu_cfs_quota_per_task_read_s64(struct cgroup *cgrp, struct cftype *cft)
-{
-	return tg_get_cfs_quota_per_task(cgroup_tg(cgrp));
-}
-
-static int cpu_cfs_quota_per_task_write_s64(struct cgroup *cgrp, struct cftype *cftype,
-				s64 cfs_quota_us)
-{
-	return tg_set_cfs_quota_per_task(cgroup_tg(cgrp), cfs_quota_us);
-}
-#endif
 
 static s64 cpu_cfs_quota_read_s64(struct cgroup *cgrp, struct cftype *cft)
 {
@@ -10203,13 +10158,6 @@ static struct cftype cpu_files[] = {
 	},
 #endif
 #ifdef CONFIG_CFS_BANDWIDTH
-#ifdef VENDOR_EDIT
-	{
-		.name = "cfs_quota_us_per_task",
-		.read_s64 = cpu_cfs_quota_per_task_read_s64,
-		.write_s64 = cpu_cfs_quota_per_task_write_s64,
-	},
-#endif
 	{
 		.name = "cfs_quota_us",
 		.read_s64 = cpu_cfs_quota_read_s64,

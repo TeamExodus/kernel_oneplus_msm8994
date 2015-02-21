@@ -119,19 +119,12 @@ struct cfs_bandwidth {
 	raw_spinlock_t lock;
 	ktime_t period;
 	u64 quota, runtime;
-#ifdef VENDOR_EDIT
-	u64 quota_per_task;
-#endif
 	s64 hierarchal_quota;
 	u64 runtime_expires;
 
 	int idle, timer_active;
 	struct hrtimer period_timer, slack_timer;
-#ifdef VENDOR_EDIT
-	struct list_head throttled_cfs_rq, unthrottled_cfs_rq;
-#else
 	struct list_head throttled_cfs_rq;
-#endif
 
 	/* statistics */
 	int nr_periods, nr_throttled;
@@ -224,7 +217,7 @@ extern void init_cfs_bandwidth(struct cfs_bandwidth *cfs_b);
 extern int sched_group_set_shares(struct task_group *tg, unsigned long shares);
 
 extern void __refill_cfs_bandwidth_runtime(struct cfs_bandwidth *cfs_b);
-extern void __start_cfs_bandwidth(struct cfs_bandwidth *cfs_b, bool force);
+extern void __start_cfs_bandwidth(struct cfs_bandwidth *cfs_b);
 extern void unthrottle_cfs_rq(struct cfs_rq *cfs_rq);
 
 extern void free_rt_sched_group(struct task_group *tg);
@@ -344,12 +337,7 @@ struct cfs_rq {
 	u64 throttled_clock, throttled_clock_task;
 	u64 throttled_clock_task_time;
 	int throttled, throttle_count;
-#ifdef VENDOR_EDIT
-	struct list_head throttled_list, unthrottled_list;
-	atomic_t throttling_in_progress;
-#else
 	struct list_head throttled_list;
-#endif
 #endif /* CONFIG_CFS_BANDWIDTH */
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 };
@@ -747,6 +735,7 @@ extern unsigned int min_possible_efficiency;
 extern unsigned int max_capacity;
 extern unsigned int min_capacity;
 extern unsigned int max_load_scale_factor;
+extern unsigned int max_possible_capacity;
 extern unsigned long capacity_scale_cpu_efficiency(int cpu);
 extern unsigned long capacity_scale_cpu_freq(int cpu);
 extern unsigned int sched_mostly_idle_load;
@@ -759,12 +748,26 @@ extern unsigned int sched_heavy_task;
 
 extern void reset_cpu_hmp_stats(int cpu, int reset_cra);
 extern void fixup_nr_big_small_task(int cpu, int reset_stats);
-u64 scale_load_to_cpu(u64 load, int cpu);
 unsigned int max_task_load(void);
 extern void sched_account_irqtime(int cpu, struct task_struct *curr,
 				 u64 delta, u64 wallclock);
 unsigned int cpu_temp(int cpu);
 extern unsigned int nr_eligible_big_tasks(int cpu);
+
+/*
+ * 'load' is in reference to "best cpu" at its best frequency.
+ * Scale that in reference to a given cpu, accounting for how bad it is
+ * in reference to "best cpu".
+ */
+static inline u64 scale_load_to_cpu(u64 task_load, int cpu)
+{
+	struct rq *rq = cpu_rq(cpu);
+
+	task_load *= (u64)rq->load_scale_factor;
+	task_load /= 1024;
+
+	return task_load;
+}
 
 static inline int capacity(struct rq *rq)
 {
