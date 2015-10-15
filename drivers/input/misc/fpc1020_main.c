@@ -217,6 +217,7 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 #endif
 
 unsigned int nav_switch = 1;
+unsigned int enable_keys = 1;
 
 /* -------------------------------------------------------------------- */
 /* External interface							*/
@@ -575,7 +576,6 @@ static ssize_t fpc1020_home_switch_store(struct device *dev, struct device_attri
 
 	//tmp = strsep((char **) &buf, "\n");
 	char *after;
-	unsigned long nav_switch = 0;
 
 	mutex_lock(&mLock);
 
@@ -584,7 +584,7 @@ static ssize_t fpc1020_home_switch_store(struct device *dev, struct device_attri
 
 	fpc1020 = dev_get_drvdata(dev);
 
-	dev_err(&fpc1020->spi->dev, "nav_switch change to %ld\n", nav_switch);
+	dev_err(&fpc1020->spi->dev, "nav_switch change to %d\n", nav_switch);
 
 	write_nav_switch(fpc1020);
 
@@ -597,7 +597,7 @@ static ssize_t fpc1020_home_switch_show(struct device *dev, struct device_attrib
 	fpc1020_data_t *fpc1020;
 	fpc1020 = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%d", fpc1020->nav.enabled);
+	return sprintf(buf, "%d\n", fpc1020->nav.enabled);
 }
 //*/
 static struct device_attribute fpc1020_state_attr =
@@ -938,8 +938,6 @@ static int /*__devexit*/ fpc1020_remove(struct spi_device *spi)
 }
 
 #if defined(CONFIG_FB)
-static int enable_keys = 1;
-
 static int fb_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
 {
 	struct fb_event *evdata = data;
@@ -954,17 +952,13 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 		if( *blank == FB_BLANK_UNBLANK && (event == FB_EARLY_EVENT_BLANK )) {
 			dev_err(&fpc1020->spi->dev, "%s change to home key\n", __func__);
 			fpc1020->to_power = false;
-			if (enable_keys) nav_switch = 1;
+			enable_keys = 1;
 		} else if( *blank == FB_BLANK_POWERDOWN && (event == FB_EVENT_BLANK )) {
 			dev_err(&fpc1020->spi->dev, "%s change to power key\n", __func__);
 			fpc1020->to_power = true;
-			if (!nav_switch) enable_keys = 0;
-			nav_switch = 0;
+			enable_keys = 0;
 		}
 	}
-
-	if (enable_keys) write_nav_switch(fpc1020);
-	if (!fpc1020->to_power) enable_keys = 1;
 	return 0;
 }
 #endif
