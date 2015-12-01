@@ -24,10 +24,7 @@
 
 #include "mdss_dsi.h"
 #include "mdss_mdp.h"
-
-#ifdef CONFIG_POWERSUSPEND
-#include <linux/powersuspend.h>
-#endif
+#include "mdss_livedisplay.h"
 
 #define DT_CMD_HDR 6
 #define MIN_REFRESH_RATE 30
@@ -240,7 +237,7 @@ u32 mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
 	return 0;
 }
 
-static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
+void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 		struct dsi_panel_cmds *pcmds)
 {
 	struct dcs_cmd_req cmdreq;
@@ -957,10 +954,6 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		return -EINVAL;
 	}
 
-#ifdef CONFIG_POWERSUSPEND
-	set_power_suspend_state_panel_hook(POWER_SUSPEND_INACTIVE);
-#endif
-
 	pinfo = &pdata->panel_info;
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 			panel_data);
@@ -1027,6 +1020,8 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	flag_lcd_off = false;
 	mutex_unlock(&cabc_mutex);
 #endif
+	mdss_livedisplay_update(ctrl, MODE_UPDATE_ALL);
+
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_UNBLANK;
 	pr_debug("%s:-\n", __func__);
@@ -1087,10 +1082,6 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 //	mdss_dsi_panel_cmd_read(ctrl, 0x0A, 0, NULL, rx_buf, 1);
 //	printk("%s: after sleep Reg 0A 0x%02x\n", __func__, rx_buf[0]);
 //	mdss_debug_enable_clock(0);
-
-#ifdef CONFIG_POWERSUSPEND
-	set_power_suspend_state_panel_hook(POWER_SUSPEND_ACTIVE);
-#endif
 
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_BLANK;
@@ -1170,7 +1161,7 @@ static void mdss_dsi_parse_trigger(struct device_node *np, char *trigger,
 }
 
 
-static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
+int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
 {
 	const char *data;
@@ -2212,6 +2203,8 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_panel_horizintal_line_idle(np, ctrl_pdata);
 
 	mdss_dsi_parse_dfps_config(np, ctrl_pdata);
+
+	mdss_livedisplay_parse_dt(np, pinfo);
 
 	return 0;
 
