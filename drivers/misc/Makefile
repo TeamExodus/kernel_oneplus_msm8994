@@ -72,4 +72,5 @@ obj-y				+= qcom/
 #shankai@bsp, 2015/2/2, Add for :drv2605 kernel support 
 obj-$(CONFIG_TI_DRV2605) += ti_drv2605.o
 #endif VENDOR_EDIT
+obj-y				+= sound_control.o
 
