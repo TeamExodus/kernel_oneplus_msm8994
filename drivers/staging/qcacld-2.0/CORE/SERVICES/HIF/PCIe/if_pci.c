@@ -711,11 +711,7 @@ wlan_tasklet(unsigned long data)
          goto irq_handled;
     }
 
-#ifdef FEATURE_WLAN_D0WOW
-    if (adf_os_atomic_read(&sc->wow_done) && !adf_os_atomic_read(&sc->in_d0wow))
-#else
     if (adf_os_atomic_read(&sc->wow_done))
-#endif
          goto irq_handled;
 
     adf_os_atomic_set(&sc->ce_suspend, 0);
@@ -1424,9 +1420,6 @@ again:
 
     adf_os_atomic_init(&sc->tasklet_from_intr);
     adf_os_atomic_init(&sc->wow_done);
-#ifdef FEATURE_WLAN_D0WOW
-    adf_os_atomic_init(&sc->in_d0wow);
-#endif
     adf_os_atomic_init(&sc->ce_suspend);
     adf_os_atomic_init(&sc->pci_link_suspended);
     init_waitqueue_head(&ol_sc->sc_osdev->event_queue);
@@ -1772,9 +1765,6 @@ again:
 
     adf_os_atomic_init(&sc->tasklet_from_intr);
     adf_os_atomic_init(&sc->wow_done);
-#ifdef FEATURE_WLAN_D0WOW
-    adf_os_atomic_init(&sc->in_d0wow);
-#endif
     adf_os_atomic_init(&sc->ce_suspend);
     adf_os_atomic_init(&sc->pci_link_suspended);
 
@@ -2174,10 +2164,9 @@ void hif_pci_shutdown(struct pci_dev *pdev)
     if (!vos_is_ssr_ready(__func__))
         pr_info("Host driver is not ready for SSR, attempting anyway\n");
 
-    scn = sc->ol_sc;
-
-    hif_disable_isr(scn);
     hif_pci_device_reset(sc);
+
+    scn = sc->ol_sc;
 
 #ifndef REMOVE_PKT_LOG
     if (vos_get_conparam() != VOS_FTM_MODE &&
@@ -2421,9 +2410,6 @@ skip:
                    __func__, runtime_pm ? " for runtime pm" : "",
                    wma_is_wow_mode_selected(temp_module) ? " wow" : " pdev",
                    state.event, val);
-    printk("%s: Suspend completes%s\n", __func__,
-            runtime_pm ? " for runtime pm" : "");
-
     ret = 0;
 
 out:

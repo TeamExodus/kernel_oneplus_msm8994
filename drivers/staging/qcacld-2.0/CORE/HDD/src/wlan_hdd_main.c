@@ -580,42 +580,6 @@ done:
 
 #endif /* FEATURE_GREEN_AP */
 
-/**
- * hdd_lost_link_info_cb() - callback function to get lost link information
- * @context: HDD context
- * @lost_link_info: lost link information
- *
- * Return: none
- */
-static void hdd_lost_link_info_cb(void *context,
-				  struct sir_lost_link_info *lost_link_info)
-{
-	hdd_context_t *hdd_ctx = (hdd_context_t *)context;
-	int status;
-	hdd_adapter_t *adapter;
-
-	status = wlan_hdd_validate_context(hdd_ctx);
-	if (0 != status) {
-		hddLog(LOGE, "%s: HDD context is not valid", __func__);
-		return;
-	}
-
-	if (NULL == lost_link_info) {
-		hddLog(LOGE, "%s: lost_link_info is NULL", __func__);
-		return;
-	}
-
-	adapter = hdd_get_adapter_by_vdev(hdd_ctx, lost_link_info->vdev_id);
-	if (NULL == adapter) {
-		hddLog(LOGE, "%s: invalid adapter", __func__);
-		return;
-	}
-
-	adapter->rssi_on_disconnect = lost_link_info->rssi;
-	hddLog(LOG1, "%s: rssi on disconnect %d",
-		     __func__, adapter->rssi_on_disconnect);
-}
-
 #if defined (FEATURE_WLAN_MCC_TO_SCC_SWITCH) || defined (FEATURE_WLAN_STA_AP_MODE_DFS_DISABLE)
 /**---------------------------------------------------------------------------
 
@@ -701,14 +665,9 @@ end:
 
 static int __hdd_netdev_notifier_call(struct notifier_block * nb,
                                          unsigned long state,
-                                         void *data)
+                                         void *ndev)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0))
-   struct netdev_notifier_info *dev_notif_info = data;
-   struct net_device *dev = dev_notif_info->dev;
-#else
-   struct net_device *dev = data;
-#endif
+   struct net_device *dev = ndev;
    hdd_adapter_t *pAdapter = WLAN_HDD_GET_PRIV_PTR(dev);
    hdd_context_t *pHddCtx;
 #ifdef WLAN_BTAMP_FEATURE
@@ -720,15 +679,11 @@ static int __hdd_netdev_notifier_call(struct notifier_block * nb,
       return NOTIFY_DONE;
 
    if ((pAdapter->magic != WLAN_HDD_ADAPTER_MAGIC) &&
-      (pAdapter->dev != dev)) {
-      hddLog(LOGE, FL("device adapter is not matching!!!"));
+      (pAdapter->dev != dev))
       return NOTIFY_DONE;
-   }
 
-   if (!dev->ieee80211_ptr) {
-      hddLog(LOGE, FL("ieee80211_ptr is NULL!!!"));
+   if (!dev->ieee80211_ptr)
       return NOTIFY_DONE;
-   }
 
    pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
    if (NULL == pHddCtx)
@@ -7523,7 +7478,9 @@ static hdd_adapter_t* hdd_alloc_station_adapter( hdd_context_t *pHddCtx, tSirMac
       vos_mem_copy(pWlanDev->dev_addr, (void *)macAddr, sizeof(tSirMacAddr));
       vos_mem_copy( pAdapter->macAddressCurrent.bytes, macAddr, sizeof(tSirMacAddr));
       pWlanDev->watchdog_timeo = HDD_TX_TIMEOUT;
+#ifndef QCA_WIFI_2_0
       pWlanDev->hard_header_len += LIBRA_HW_NEEDED_HEADROOM;
+#endif
 
       if (pHddCtx->cfg_ini->enableIPChecksumOffload)
          pWlanDev->features |= NETIF_F_HW_CSUM;
@@ -8274,6 +8231,13 @@ hdd_adapter_t* hdd_open_adapter( hdd_context_t *pHddCtx, tANI_U8 session_type,
          //netif_tx_disable(pWlanDev);
          netif_carrier_off(pAdapter->dev);
 
+         if (WLAN_HDD_P2P_CLIENT == session_type ||
+                 WLAN_HDD_P2P_DEVICE == session_type) {
+             /* Initialize the work queue to defer the
+              * back to back RoC request */
+             INIT_DELAYED_WORK(&pAdapter->roc_work, hdd_p2p_roc_work_queue);
+         }
+
 #ifdef QCA_LL_TX_FLOW_CT
          /* SAT mode default TX Flow control instance
           * This instance will be used for
@@ -8325,6 +8289,11 @@ hdd_adapter_t* hdd_open_adapter( hdd_context_t *pHddCtx, tANI_U8 session_type,
          netif_carrier_off(pAdapter->dev);
 
          hdd_set_conparam( 1 );
+         if (WLAN_HDD_P2P_GO == session_type) {
+             /* Initialize the work queue to
+              * defer the back to back RoC request */
+             INIT_DELAYED_WORK(&pAdapter->roc_work, hdd_p2p_roc_work_queue);
+         }
 
          break;
       }
@@ -8809,6 +8778,9 @@ VOS_STATUS hdd_stop_adapter( hdd_context_t *pHddCtx, hdd_adapter_t *pAdapter,
          }
          if (pAdapter->device_mode != WLAN_HDD_INFRA_STATION) {
              wlan_hdd_cleanup_remain_on_channel_ctx(pAdapter);
+#ifdef WLAN_OPEN_SOURCE
+             cancel_delayed_work_sync(&pAdapter->roc_work);
+#endif
          }
 
 #ifdef WLAN_OPEN_SOURCE
@@ -8860,6 +8832,9 @@ VOS_STATUS hdd_stop_adapter( hdd_context_t *pHddCtx, hdd_adapter_t *pAdapter,
          //Any softap specific cleanup here...
          if (pAdapter->device_mode == WLAN_HDD_P2P_GO) {
              wlan_hdd_cleanup_remain_on_channel_ctx(pAdapter);
+#ifdef WLAN_OPEN_SOURCE
+             cancel_delayed_work_sync(&pAdapter->roc_work);
+#endif
          }
 
 #ifdef QCA_LL_TX_FLOW_CT
@@ -9005,39 +8980,6 @@ VOS_STATUS hdd_reset_all_adapters( hdd_context_t *pHddCtx )
    return VOS_STATUS_SUCCESS;
 }
 
-/**
- * hdd_connect_result() - API to send connection status to supplicant
- * @dev: network device
- * @bssid: bssid to which we want to associate
- * @req_ie: Request Information Element
- * @req_ie_len: len of the req IE
- * @resp_ie: Response IE
- * @resp_ie_len: len of ht response IE
- * @status: status
- * @gfp: Kernel Flag
- *
- * The API is a wrapper to send connection status to supplicant
- * and allow runtime suspend
- *
- * Return: Void
- */
-
-void hdd_connect_result(struct net_device *dev,
-			const u8 *bssid,
-			const u8 *req_ie,
-			size_t req_ie_len,
-			const u8 * resp_ie,
-			size_t resp_ie_len,
-			u16 status,
-			gfp_t gfp)
-{
-
-	cfg80211_connect_result(dev, bssid, req_ie, req_ie_len,
-				resp_ie, resp_ie_len, status, gfp);
-	vos_runtime_pm_allow_suspend();
-}
-
-
 VOS_STATUS hdd_start_all_adapters( hdd_context_t *pHddCtx )
 {
    hdd_adapter_list_node_t *pAdapterNode = NULL, *pNext = NULL;
@@ -9074,10 +9016,7 @@ VOS_STATUS hdd_start_all_adapters( hdd_context_t *pHddCtx )
 
             //Indicate disconnect event to supplicant if associated previously
             if (eConnectionState_Associated == connState ||
-                eConnectionState_IbssConnected == connState ||
-                eConnectionState_NotConnected == connState ||
-                eConnectionState_IbssDisconnected == connState ||
-                eConnectionState_Disconnecting == connState)
+                eConnectionState_IbssConnected == connState )
             {
                union iwreq_data wrqu;
                memset(&wrqu, '\0', sizeof(wrqu));
@@ -9096,7 +9035,7 @@ VOS_STATUS hdd_start_all_adapters( hdd_context_t *pHddCtx )
                * Indicate connect failure to supplicant if we were in the
                * process of connecting
                */
-               hdd_connect_result(pAdapter->dev, NULL,
+               cfg80211_connect_result(pAdapter->dev, NULL,
                                        NULL, 0, NULL, 0,
                                        WLAN_STATUS_ASSOC_DENIED_UNSPEC,
                                        GFP_KERNEL);
@@ -9168,9 +9107,6 @@ VOS_STATUS hdd_reconnect_all_adapters( hdd_context_t *pHddCtx )
          hddLog(VOS_TRACE_LEVEL_INFO,
             "%s: Set HDD connState to eConnectionState_NotConnected",
                    __func__);
-         if (eConnectionState_Associated == pHddStaCtx->conn_info.connState) {
-             wlan_hdd_decr_active_session(pHddCtx, pAdapter->device_mode);
-         }
          pHddStaCtx->conn_info.connState = eConnectionState_NotConnected;
          init_completion(&pAdapter->disconnect_comp_var);
          sme_RoamDisconnect(pHddCtx->hHal, pAdapter->sessionId,
@@ -9767,11 +9703,11 @@ static void hdd_set_multicast_list(struct net_device *dev)
    struct netdev_hw_addr *ha;
    hdd_context_t *pHddCtx;
 
-   pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
-   if (0 != wlan_hdd_validate_context(pHddCtx))
+   if (VOS_FTM_MODE == hdd_get_conparam())
        return;
 
-   if (VOS_FTM_MODE == hdd_get_conparam())
+   pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
+   if (0 != wlan_hdd_validate_context(pHddCtx))
        return;
 
    /* Delete already configured multicast address list */
@@ -11022,7 +10958,6 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
    WLANBAP_ConfigType btAmpConfig;
    hdd_config_t *pConfig;
 #endif
-   eHalStatus hal_status;
    int ret;
    int i;
    struct wiphy *wiphy;
@@ -11318,6 +11253,15 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
       goto err_wiphy_unregister;
    }
 
+   ret = process_wma_set_command(0, WMI_PDEV_PARAM_TX_CHAIN_MASK_1SS,
+                                 pHddCtx->cfg_ini->tx_chain_mask_1ss,
+                                 PDEV_CMD);
+   if (0 != ret) {
+       hddLog(VOS_TRACE_LEVEL_ERROR,
+              "%s: WMI_PDEV_PARAM_TX_CHAIN_MASK_1SS failed %d",
+              __func__, ret);
+   }
+
    status = hdd_set_sme_chan_list(pHddCtx);
    if (status != VOS_STATUS_SUCCESS) {
       hddLog(VOS_TRACE_LEVEL_FATAL,
@@ -11338,8 +11282,8 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
 
    if ( VOS_STATUS_SUCCESS != hdd_update_mac_config( pHddCtx ) )
    {
-      hddLog(VOS_TRACE_LEVEL_WARN,
-             "%s: can't update mac config, using MAC from ini file",
+      hddLog(VOS_TRACE_LEVEL_ERROR,
+             "%s: can't update mac config, using MAC from bin file",
              __func__);
    }
 
@@ -11683,7 +11627,7 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
 
    mutex_init(&pHddCtx->sap_lock);
 
-   pHddCtx->wifi_turn_on_time_since_boot = vos_get_monotonic_boottime();
+   pHddCtx->isLoadInProgress = FALSE;
 
 #ifdef WLAN_FEATURE_HOLD_RX_WAKELOCK
    /* Initialize the wake lcok */
@@ -11695,6 +11639,8 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
            "qcom_sap_wakelock");
 
    hdd_hostapd_channel_wakelock_init(pHddCtx);
+
+   vos_set_load_unload_in_progress(VOS_MODULE_ID_VOSS, FALSE);
 
    // Initialize the restart logic
    wlan_hdd_restart_init(pHddCtx);
@@ -11814,18 +11760,12 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
    if (WLAN_HDD_RX_HANDLE_RPS == pHddCtx->cfg_ini->rxhandle)
       hdd_dp_util_send_rps_ind(pHddCtx);
 
-   hal_status = sme_set_lost_link_info_cb(pHddCtx->hHal,
-                                          hdd_lost_link_info_cb);
-   /* print error and not block the startup process */
-   if (eHAL_STATUS_SUCCESS != hal_status)
-       hddLog(LOGE, "%s: set lost link info callback failed", __func__);
-
    /* Initialize the RoC Request queue and work. */
    hdd_list_init((&pHddCtx->hdd_roc_req_q), MAX_ROC_REQ_QUEUE_ENTRY);
 #ifdef CONFIG_CNSS
-   cnss_init_delayed_work(&pHddCtx->rocReqWork, wlan_hdd_roc_request_dequeue);
+   cnss_init_work(&pHddCtx->rocReqWork, wlan_hdd_roc_request_dequeue);
 #else
-   INIT_DELAYED_WORK(&pHddCtx->rocReqWork, wlan_hdd_roc_request_dequeue);
+   INIT_WORK(&pHddCtx->rocReqWork, wlan_hdd_roc_request_dequeue);
 #endif
 
    /*
@@ -11833,6 +11773,7 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
     * So that we can reconfigure the offload parameters
     */
    hdd_wlan_register_ip6_notifier(pHddCtx);
+
    /*
     * Register IPv4 notifier to notify if any change in IP
     * So that we can reconfigure the offload parameters
@@ -11844,10 +11785,7 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
    else
       hddLog(LOGE, FL("Registered IPv4 notifier"));
 
-   pHddCtx->isLoadInProgress = FALSE;
-   vos_set_load_unload_in_progress(VOS_MODULE_ID_VOSS, FALSE);
    complete(&wlan_start_comp);
-
    goto success;
 
 err_nl_srv:
@@ -11998,14 +11936,6 @@ static int hdd_driver_init( void)
 
    ENTER();
 
-#ifdef TIMER_MANAGER
-      vos_timer_manager_init();
-#endif
-
-#ifdef MEMORY_DEBUG
-      vos_mem_init();
-#endif
-
    vos_wake_lock_init(&wlan_wake_lock, "wlan");
    hdd_prevent_suspend(WIFI_POWER_EVENT_WAKELOCK_DRIVER_INIT);
    /*
@@ -12045,6 +11975,14 @@ static int hdd_driver_init( void)
          }
          return ret_status;
       }
+#endif
+
+#ifdef TIMER_MANAGER
+      vos_timer_manager_init();
+#endif
+
+#ifdef MEMORY_DEBUG
+      vos_mem_init();
 #endif
 
       /* Preopen VOSS so that it is ready to start at least SAL */
