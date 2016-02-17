@@ -2779,7 +2779,6 @@ int mdss_mdp_user_pcc_config(struct mdp_pcc_cfg_data *config)
 	return ret;
 }
 
-
 int mdss_mdp_pcc_config(struct mdp_pcc_cfg_data *config,
 					u32 *copyback)
 {
@@ -3707,11 +3706,7 @@ int mdss_mdp_hist_start(struct mdp_histogram_start_req *req)
 				goto hist_stop_clk;
 			}
 			hist_info = &mdss_pp_res->dspp_hist[dspp_num];
-
-			hist_info->disp_num = PP_BLOCK(req->block);//qualcomm provide patch in 2015-07-03 add
-
-
-
+			hist_info->disp_num = PP_BLOCK(req->block);
 			ret = pp_hist_enable(hist_info, req);
 			mdss_pp_res->pp_disp_flags[disp_num] |=
 							PP_FLAGS_DIRTY_HIST_COL;
@@ -3800,30 +3795,24 @@ int mdss_mdp_hist_stop(u32 block)
 				goto hist_stop_clk;
 		}
 	} else if (PP_LOCAT(block) == MDSS_PP_DSPP_CFG) {
-/********************************************************/
-			if ((PP_BLOCK(block) < MDP_LOGICAL_BLOCK_DISP_0) ||
-					(PP_BLOCK(block) >= MDP_BLOCK_MAX)) {
-				pr_err("Invalid logical disp block %d\n",
-					 PP_BLOCK(block));
-				ret = -EINVAL;
-				goto hist_stop_clk;
-			}
-			disp_num = PP_BLOCK(block);
-			for (i = 0; i < mdata->ndspp; i++) {
-				hist_info = &mdss_pp_res->dspp_hist[i];
-				if (disp_num != hist_info->disp_num)
-					continue;
-				ret = pp_hist_disable(hist_info);
-				hist_info->disp_num = 0;
-/****************qualcomm provide patch in 2015-07-03*********************/
-
+		if ((PP_BLOCK(block) < MDP_LOGICAL_BLOCK_DISP_0) ||
+				(PP_BLOCK(block) >= MDP_BLOCK_MAX)) {
+			pr_err("Invalid logical disp block %d\n",
+				 PP_BLOCK(block));
+			ret = -EINVAL;
+			goto hist_stop_clk;
+		}
+		disp_num = PP_BLOCK(block);
+		for (i = 0; i < mdata->ndspp; i++) {
+			hist_info = &mdss_pp_res->dspp_hist[i];
+			if (disp_num != hist_info->disp_num)
+				continue;
 			ret = pp_hist_disable(hist_info);
 			hist_info->disp_num = 0;
-
 			if (ret)
 				goto hist_stop_clk;
-		    mdss_pp_res->pp_disp_flags[i] |=
-            				PP_FLAGS_DIRTY_HIST_COL;
+			mdss_pp_res->pp_disp_flags[i] |=
+				PP_FLAGS_DIRTY_HIST_COL;
 		}
 	}
 hist_stop_clk:
