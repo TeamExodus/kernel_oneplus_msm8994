@@ -3448,8 +3448,9 @@ typedef struct sSirUpdateAPWPARSNIEsReq
 typedef struct sSirNsOffloadReq
 {
     tANI_U8 srcIPv6Addr[16];
-    tANI_U8 selfIPv6Addr[SIR_MAC_NUM_TARGET_IPV6_NS_OFFLOAD_NA][SIR_MAC_IPV6_ADDR_LEN];
-    tANI_U8 targetIPv6Addr[SIR_MAC_NUM_TARGET_IPV6_NS_OFFLOAD_NA][SIR_MAC_IPV6_ADDR_LEN];
+    tANI_U8 selfIPv6Addr[16];
+    //Only support 2 possible Network Advertisement IPv6 address
+    tANI_U8 targetIPv6Addr[SIR_MAC_NUM_TARGET_IPV6_NS_OFFLOAD_NA][16];
     tANI_U8 selfMacAddr[6];
     tANI_U8 srcIPv6AddrValid;
     tANI_U8 targetIPv6AddrValid[SIR_MAC_NUM_TARGET_IPV6_NS_OFFLOAD_NA];
@@ -3461,7 +3462,6 @@ typedef struct sSirHostOffloadReq
 {
     tANI_U8 offloadType;
     tANI_U8 enableOrDisable;
-    uint32_t num_ns_offload_count;
     union
     {
         tANI_U8 hostIpv4Addr [4];
@@ -3711,9 +3711,9 @@ typedef struct
  */
 typedef struct sSirPNOScanReq {
 	uint8_t         enable;
-  eSirPNOMode         modePNO;
+	eSirPNOMode     modePNO;
 	uint8_t         ucNetworksCount;
-  tSirNetworkType     aNetworks[SIR_PNO_MAX_SUPP_NETWORKS];
+	tSirNetworkType aNetworks[SIR_PNO_MAX_SUPP_NETWORKS];
 	uint8_t         sessionId;
 	uint32_t        fast_scan_period;
 	uint32_t        slow_scan_period;
@@ -5842,6 +5842,21 @@ typedef struct sAniGetLinkStatus
     tANI_U8 sessionId;
 } tAniGetLinkStatus, *tpAniGetLinkStatus;
 
+/**
+ * struct sir_lost_link_info - lost link information structure.
+ *
+ * @vdev_id: vdev_id from WMA. some modules call sessionId.
+ * @rssi: rssi at disconnection time.
+ *
+ * driver uses this structure to communicate information collected at
+ * disconnection time.
+ */
+struct sir_lost_link_info
+{
+	uint32_t vdev_id;
+	int8_t rssi;
+};
+
 /* find the size of given member within a structure */
 #ifndef member_size
 #define member_size(type, member) (sizeof(((type *)0)->member))
@@ -5956,23 +5971,6 @@ struct fw_dump_rsp
 {
 	uint32_t request_id;
 	uint32_t dump_complete;
-};
-
-/**
- * struct vdev_ie_info - IE info
- * @vdev_i - vdev for which the IE is being sent
- * @ie_id - ID of the IE
- * @length - length of the IE data
- * @data - IE data
- *
- * This structure is used to store the IE information.
- */
-struct vdev_ie_info
-{
-	uint32_t vdev_id;
-	uint32_t ie_id;
-	uint32_t length;
-	uint8_t *data;
 };
 
 /*

@@ -3856,6 +3856,13 @@ REG_TABLE_ENTRY g_registry_table[] =
                  CFG_ENABLE_GREEN_AP_FEATURE_MAX ),
 #endif
 
+   REG_VARIABLE(CFG_ENABLE_CRASH_INJECT, WLAN_PARAM_Integer,
+                 hdd_config_t, crash_inject_enabled,
+                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                 CFG_ENABLE_CRASH_INJECT_DEFAULT,
+                 CFG_ENABLE_CRASH_INJECT_MIN,
+                 CFG_ENABLE_CRASH_INJECT_MAX),
+
    REG_VARIABLE(CFG_IGNORE_CAC_NAME, WLAN_PARAM_Integer,
                 hdd_config_t, ignoreCAC,
                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -4074,6 +4081,13 @@ REG_TABLE_ENTRY g_registry_table[] =
                   CFG_IGNORE_PEER_ERP_INFO_MIN,
                   CFG_IGNORE_PEER_ERP_INFO_MAX ),
 
+   REG_VARIABLE(CFG_ENABLE_DEAUTH_BEFORE_CONNECTION, WLAN_PARAM_Integer,
+                hdd_config_t, sendDeauthBeforeCon,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_DEFAULT,
+                CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_MIN,
+                CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_MAX),
+
    REG_VARIABLE( CFG_ENABLE_MAC_ADDR_SPOOFING, WLAN_PARAM_Integer,
                  hdd_config_t, enable_mac_spoofing,
                  VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -4108,20 +4122,6 @@ REG_TABLE_ENTRY g_registry_table[] =
                 CFG_DROPPED_PKT_DISCONNECT_TH_MIN,
                 CFG_DROPPED_PKT_DISCONNECT_TH_MAX),
 
-   REG_VARIABLE(CFG_TX_CHAIN_MASK_CCK, WLAN_PARAM_Integer,
-                hdd_config_t, tx_chain_mask_cck,
-                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                CFG_TX_CHAIN_MASK_CCK_DEFAULT,
-                CFG_TX_CHAIN_MASK_CCK_MIN,
-                CFG_TX_CHAIN_MASK_CCK_MAX),
-
-   REG_VARIABLE(CFG_TX_CHAIN_MASK_1SS, WLAN_PARAM_Integer,
-                hdd_config_t, tx_chain_mask_1ss,
-                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                CFG_TX_CHAIN_MASK_1SS_DEFAULT,
-                CFG_TX_CHAIN_MASK_1SS_MIN,
-                CFG_TX_CHAIN_MASK_1SS_MAX),
-
    REG_VARIABLE(CFG_SELF_GEN_FRM_PWR, WLAN_PARAM_Integer,
                 hdd_config_t, self_gen_frm_pwr,
                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -4130,6 +4130,13 @@ REG_TABLE_ENTRY g_registry_table[] =
                 CFG_SELF_GEN_FRM_PWR_MAX),
 
 #ifdef FEATURE_WLAN_EXTSCAN
+   REG_VARIABLE(CFG_EXTSCAN_ALLOWED_NAME, WLAN_PARAM_Integer,
+                 hdd_config_t, extscan_enabled,
+                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                 CFG_EXTSCAN_ALLOWED_DEF,
+                 CFG_EXTSCAN_ALLOWED_MIN,
+                 CFG_EXTSCAN_ALLOWED_MAX ),
+
    REG_VARIABLE(CFG_EXTSCAN_PASSIVE_MAX_CHANNEL_TIME_NAME, WLAN_PARAM_Integer,
                  hdd_config_t, extscan_passive_max_chn_time,
                  VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -4238,14 +4245,6 @@ REG_TABLE_ENTRY mbssid_sap_dyn_ini_reg_table[] =
                 CFG_P2P_LISTEN_DEFER_INTERVAL_DEFAULT,
                 CFG_P2P_LISTEN_DEFER_INTERVAL_MIN,
                 CFG_P2P_LISTEN_DEFER_INTERVAL_MAX),
-
-   REG_VARIABLE(CFG_FIRST_SCAN_BUCKET_THRESHOLD_NAME, WLAN_PARAM_SignedInteger,
-                hdd_config_t, first_scan_bucket_threshold,
-                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                CFG_FIRST_SCAN_BUCKET_THRESHOLD_DEFAULT,
-                CFG_FIRST_SCAN_BUCKET_THRESHOLD_MIN,
-                CFG_FIRST_SCAN_BUCKET_THRESHOLD_MAX),
-
 };
 #endif
 
@@ -4824,9 +4823,6 @@ void print_hdd_cfg(hdd_context_t *pHddCtx)
                    pHddCtx->cfg_ini->fine_time_meas_cap);
   hddLog(LOG2, "Name = [gP2PListenDeferInterval] Value = [%u]",
                    pHddCtx->cfg_ini->p2p_listen_defer_interval);
-  hddLog(LOG2, "Name = [%s] Value = [%d]",
-                 CFG_FIRST_SCAN_BUCKET_THRESHOLD_NAME,
-                 pHddCtx->cfg_ini->first_scan_bucket_threshold);
 }
 
 #define CFG_VALUE_MAX_LEN 256
@@ -5028,7 +5024,7 @@ VOS_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx)
 
    if (status)
    {
-      hddLog(VOS_TRACE_LEVEL_ERROR, "%s: request_firmware failed %d",
+      hddLog(VOS_TRACE_LEVEL_WARN, "%s: request_firmware failed %d",
              __func__, status);
       vos_status = VOS_STATUS_E_FAILURE;
       return vos_status;
@@ -6627,15 +6623,14 @@ VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx )
    smeConfig->csrConfig.isRoamOffloadEnabled =
                         pHddCtx->cfg_ini->isRoamOffloadEnabled;
 #endif
-   smeConfig->csrConfig.first_scan_bucket_threshold =
-                       pHddCtx->cfg_ini->first_scan_bucket_threshold;
 
    vos_set_multicast_logging(pHddCtx->cfg_ini->multicast_host_fw_msgs);
    hdd_set_fine_time_meas_cap(pHddCtx, smeConfig);
    smeConfig->csrConfig.pkt_err_disconn_th =
                    pHddCtx->cfg_ini->pkt_err_disconn_th;
-
    smeConfig->csrConfig.ignorePeerErpInfo = pConfig->ignorePeerErpInfo;
+
+   smeConfig->csrConfig.sendDeauthBeforeCon = pConfig->sendDeauthBeforeCon;
    halStatus = sme_UpdateConfig( pHddCtx->hHal, smeConfig);
    if ( !HAL_STATUS_SUCCESS( halStatus ) )
    {

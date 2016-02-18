@@ -119,7 +119,6 @@ typedef struct _smeConfigParams
     tANI_BOOLEAN  enable5gEBT;
     tANI_BOOLEAN  enableSelfRecovery;
     uint32_t      fine_time_meas_cap;
-    int8_t       first_scan_bucket_threshold;
 } tSmeConfigParams, *tpSmeConfigParams;
 
 typedef enum
@@ -4115,5 +4114,9 @@ eHalStatus sme_set_rssi_threshold_breached_cb(tHalHandle hal,
 eHalStatus sme_disable_non_fcc_channel(tHalHandle hHal,
 				       bool fcc_constraint);
 bool smeNeighborRoamIsHandoffInProgress(tHalHandle hHal, tANI_U8 sessionId);
+
+eHalStatus sme_set_lost_link_info_cb(tHalHandle hal,
+                                     void (*cb)(void *,
+                                                struct sir_lost_link_info *));
 
 #endif //#if !defined( __SME_API_H )
