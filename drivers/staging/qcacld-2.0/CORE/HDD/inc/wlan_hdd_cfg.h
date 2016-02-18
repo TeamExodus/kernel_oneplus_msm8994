@@ -1629,6 +1629,15 @@ typedef enum
 #define CFG_ENABLE_GREEN_AP_FEATURE_DEFAULT ( 1 )
 #endif
 
+/*
+ * This INI item is used to control subsystem restart(SSR) test framework
+ * Set its value to 1 to enable APPS trigerred SSR testing
+ */
+#define CFG_ENABLE_CRASH_INJECT         "gEnableForceTargetAssert"
+#define CFG_ENABLE_CRASH_INJECT_MIN     (0)
+#define CFG_ENABLE_CRASH_INJECT_MAX     (1)
+#define CFG_ENABLE_CRASH_INJECT_DEFAULT (0)
+
 #ifdef FEATURE_WLAN_FORCE_SAP_SCC
 #define CFG_SAP_SCC_CHAN_AVOIDANCE         "gSapSccChanAvoidance"
 #define CFG_SAP_SCC_CHAN_AVOIDANCE_MIN     ( 0 )
@@ -2871,6 +2880,15 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_ENABLE_DEAUTH_TO_DISASSOC_MAP_MAX     ( 1 )
 #define CFG_ENABLE_DEAUTH_TO_DISASSOC_MAP_DEFAULT ( 0 )
 
+/*
+ * If last disconnection was due to HB failure and we reconnect
+ * to same AP next time, send Deauth before starting connection
+ */
+#define CFG_ENABLE_DEAUTH_BEFORE_CONNECTION                  "gSendDeauthBeforeCon"
+#define CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_MIN              (0)
+#define CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_MAX              (1)
+#define CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_DEFAULT          (0)
+
 #define CFG_ENABLE_MAC_ADDR_SPOOFING               "gEnableMacAddrSpoof"
 #define CFG_ENABLE_MAC_ADDR_SPOOFING_MIN           (0)
 #define CFG_ENABLE_MAC_ADDR_SPOOFING_MAX           (1)
@@ -2951,34 +2969,34 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_P2P_LISTEN_DEFER_INTERVAL_MAX         (200)
 #define CFG_P2P_LISTEN_DEFER_INTERVAL_DEFAULT     (100)
 
-#define CFG_TX_CHAIN_MASK_CCK          "gCckChainMaskEnable"
-#define CFG_TX_CHAIN_MASK_CCK_MIN      (0)
-#define CFG_TX_CHAIN_MASK_CCK_MAX      (1)
-#define CFG_TX_CHAIN_MASK_CCK_DEFAULT  (0)
-
-#define CFG_TX_CHAIN_MASK_1SS       "gTxChainMask1ss"
-#define CFG_TX_CHAIN_MASK_1SS_MIN      (0)
-#define CFG_TX_CHAIN_MASK_1SS_MAX      (3)
-#define CFG_TX_CHAIN_MASK_1SS_DEFAULT  (1)
-
 #ifdef FEATURE_WLAN_EXTSCAN
+/*
+ * This ini is added to control the enabling of extscan feature outside of code
+ * To enable , gExtScanEnable=1 need to be declared in ini file.
+ * Otherwise, Extscan feature will remain disabled.
+ */
+#define CFG_EXTSCAN_ALLOWED_NAME                   "gExtScanEnable"
+#define CFG_EXTSCAN_ALLOWED_MIN                    (0)
+#define CFG_EXTSCAN_ALLOWED_MAX                    (1)
+#define CFG_EXTSCAN_ALLOWED_DEF                    (0)
+
 #define CFG_EXTSCAN_PASSIVE_MAX_CHANNEL_TIME_NAME      "gExtScanPassiveMaxChannelTime"
-#define CFG_EXTSCAN_PASSIVE_MAX_CHANNEL_TIME_MIN       (0)
+#define CFG_EXTSCAN_PASSIVE_MAX_CHANNEL_TIME_MIN       (110)
 #define CFG_EXTSCAN_PASSIVE_MAX_CHANNEL_TIME_MAX       (500)
 #define CFG_EXTSCAN_PASSIVE_MAX_CHANNEL_TIME_DEFAULT   (110)
 
 #define CFG_EXTSCAN_PASSIVE_MIN_CHANNEL_TIME_NAME      "gExtScanPassiveMinChannelTime"
-#define CFG_EXTSCAN_PASSIVE_MIN_CHANNEL_TIME_MIN       (0)
+#define CFG_EXTSCAN_PASSIVE_MIN_CHANNEL_TIME_MIN       (60)
 #define CFG_EXTSCAN_PASSIVE_MIN_CHANNEL_TIME_MAX       (500)
 #define CFG_EXTSCAN_PASSIVE_MIN_CHANNEL_TIME_DEFAULT   (60)
 
 #define CFG_EXTSCAN_ACTIVE_MAX_CHANNEL_TIME_NAME       "gExtScanActiveMaxChannelTime"
-#define CFG_EXTSCAN_ACTIVE_MAX_CHANNEL_TIME_MIN        (0)
+#define CFG_EXTSCAN_ACTIVE_MAX_CHANNEL_TIME_MIN        (40)
 #define CFG_EXTSCAN_ACTIVE_MAX_CHANNEL_TIME_MAX        (110)
 #define CFG_EXTSCAN_ACTIVE_MAX_CHANNEL_TIME_DEFAULT    (40)
 
 #define CFG_EXTSCAN_ACTIVE_MIN_CHANNEL_TIME_NAME       "gExtScanActiveMinChannelTime"
-#define CFG_EXTSCAN_ACTIVE_MIN_CHANNEL_TIME_MIN        (0)
+#define CFG_EXTSCAN_ACTIVE_MIN_CHANNEL_TIME_MIN        (20)
 #define CFG_EXTSCAN_ACTIVE_MIN_CHANNEL_TIME_MAX        (110)
 #define CFG_EXTSCAN_ACTIVE_MIN_CHANNEL_TIME_DEFAULT    (20)
 #endif
@@ -2991,19 +3009,6 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_INFORM_BSS_RSSI_RAW_MIN                (0)
 #define CFG_INFORM_BSS_RSSI_RAW_MAX                (1)
 #define CFG_INFORM_BSS_RSSI_RAW_DEFAULT            (1)
-
-/*
- * This parameter will configure the first scan bucket
- * threshold to the mentioned value and all the AP's which
- * have RSSI under this threshold will fall under this
- * bucket.
- * This is a configuration item used to tweak and test the input
- * for internal algorithm. It should not be modified externally.
- */
-#define CFG_FIRST_SCAN_BUCKET_THRESHOLD_NAME      "gfirst_scan_bucket_threshold"
-#define CFG_FIRST_SCAN_BUCKET_THRESHOLD_MIN       (-50)
-#define CFG_FIRST_SCAN_BUCKET_THRESHOLD_MAX       (-30)
-#define CFG_FIRST_SCAN_BUCKET_THRESHOLD_DEFAULT   (-30)
 
 /*---------------------------------------------------------------------------
   Type declarations
@@ -3574,6 +3579,7 @@ typedef struct
    v_BOOL_t                    enableGreenAP;
 #endif
 
+   bool                        crash_inject_enabled;
    v_S31_t                     dfsRadarPriMultiplier;
    v_U8_t                      reorderOffloadSupport;
 
@@ -3632,18 +3638,17 @@ typedef struct
 #endif
    v_BOOL_t                    ignorePeerErpInfo;
    uint16_t                    pkt_err_disconn_th;
-   bool                        tx_chain_mask_cck;
-   uint8_t                     tx_chain_mask_1ss;
    uint16_t                    self_gen_frm_pwr;
 
 #ifdef FEATURE_WLAN_EXTSCAN
+   bool                        extscan_enabled;
    uint32_t                    extscan_passive_max_chn_time;
    uint32_t                    extscan_passive_min_chn_time;
    uint32_t                    extscan_active_max_chn_time;
    uint32_t                    extscan_active_min_chn_time;
 #endif
    uint8_t                     inform_bss_rssi_raw;
-   int8_t                      first_scan_bucket_threshold;
+   v_BOOL_t                    sendDeauthBeforeCon;
 } hdd_config_t;
 
 #ifdef WLAN_FEATURE_MBSSID

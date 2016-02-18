@@ -164,6 +164,12 @@ static void __limInitStatsVars(tpAniSirGlobal pMac)
     // Heart-Beat interval value
     pMac->lim.gLimHeartBeatCount = 0;
 
+    vos_mem_zero(pMac->lim.gLimHeartBeatApMac[0],
+            sizeof(tSirMacAddr));
+    vos_mem_zero(pMac->lim.gLimHeartBeatApMac[1],
+            sizeof(tSirMacAddr));
+    pMac->lim.gLimHeartBeatApMacIndex = 0;
+
     // Statistics to keep track of no. beacons rcvd in heart beat interval
     vos_mem_set(pMac->lim.gLimHeartBeatBeaconStats,
                 sizeof(pMac->lim.gLimHeartBeatBeaconStats), 0);
@@ -723,9 +729,6 @@ limInitialize(tpAniSirGlobal pMac)
 void
 limCleanup(tpAniSirGlobal pMac)
 {
-    v_PVOID_t pvosGCTx;
-    VOS_STATUS retStatus;
-
 //Before destroying the list making sure all the nodes have been deleted.
 //Which should be the normal case, but a memory leak has been reported.
 
@@ -796,12 +799,6 @@ limCleanup(tpAniSirGlobal pMac)
 
     // Now, finally reset the deferred message queue pointers
     limResetDeferredMsgQ(pMac);
-
-    pvosGCTx = vos_get_global_context(VOS_MODULE_ID_PE, (v_VOID_t *) pMac);
-    retStatus = WLANTL_DeRegisterMgmtFrmClient(pvosGCTx);
-
-    if ( retStatus != VOS_STATUS_SUCCESS )
-        PELOGE(limLog(pMac, LOGE, FL("DeRegistering the PE Handle with TL has failed bailing out..."));)
 
 #if defined WLAN_FEATURE_VOWIFI
     rrmCleanup(pMac);
@@ -1062,6 +1059,7 @@ tANI_U8 limIsTimerAllowedInPowerSaveState(tpAniSirGlobal pMac, tSirMsgQ *pMsg)
             case SIR_LIM_ASSOC_FAIL_TIMEOUT:
             case SIR_LIM_AUTH_FAIL_TIMEOUT:
             case SIR_LIM_ADDTS_RSP_TIMEOUT:
+            case SIR_LIM_AUTH_RETRY_TIMEOUT:
                 retStatus = TRUE;
                 break;
 
@@ -1668,7 +1666,7 @@ limDetectChangeInApCapabilities(tpAniSirGlobal pMac,
             (newChannel != 0) )
           ) ) )
     {
-        if( false == psessionEntry->fWaitForProbeRsp )
+        if (false == psessionEntry->fWaitForProbeRsp)
         {
             /* If Beacon capabilities is not matching with the current capability,
              * then send unicast probe request to AP and take decision after
@@ -2411,6 +2409,49 @@ tMgmtFrmDropReason limIsPktCandidateForDrop(tpAniSirGlobal pMac, tANI_U8 *pRxPac
     }
 
     return eMGMT_DROP_NO_DROP;
+}
+
+/**
+ * lim_update_lost_link_info() - update lost link information to SME
+ * @mac: global MAC handle
+ * @session: PE session
+ * @rssi: rssi value from the received frame
+ *
+ * Return: none
+ */
+void lim_update_lost_link_info(tpAniSirGlobal mac, tpPESession session,
+                               int8_t rssi)
+{
+	struct sir_lost_link_info *lost_link_info;
+	tSirMsgQ mmh_msg;
+	if ((NULL == mac) || (NULL == session)) {
+		VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_ERROR,
+			  "%s: parameter NULL", __func__);
+		return;
+	}
+	if (!LIM_IS_STA_ROLE(session)) {
+		VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_ERROR,
+			  "%s: not STA mode, do nothing", __func__);
+		return;
+	}
+
+	lost_link_info = vos_mem_malloc(sizeof(*lost_link_info));
+	if (NULL == lost_link_info) {
+		VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_ERROR,
+			  "%s: lost_link_info allocation failure", __func__);
+		return;
+	}
+
+	lost_link_info->vdev_id = session->smeSessionId;
+	lost_link_info->rssi = rssi;
+	mmh_msg.type = eWNI_SME_LOST_LINK_INFO_IND;
+	mmh_msg.bodyptr = lost_link_info;
+	mmh_msg.bodyval = 0;
+	VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_INFO,
+		  "%s: post eWNI_SME_LOST_LINK_INFO_IND, bss_idx %d, rssi %d",
+		  __func__, lost_link_info->vdev_id, lost_link_info->rssi);
+
+	limSysProcessMmhMsgApi(mac, &mmh_msg, ePROT);
 }
 
 eHalStatus pe_AcquireGlobalLock( tAniSirLim *psPe)

@@ -904,9 +904,11 @@ void wmi_control_rx(void *ctx, HTC_PACKET *htc_packet)
 					data, len, id,
 					&wmi_cmd_struct_ptr);
 		if (tlv_ok_status != 0) {
-			WMA_LOGE("Error: id=0x%x, wmitlv_check_and_pad_tlvs ret=%d",
-				id, tlv_ok_status);
-			return;
+			if (tlv_ok_status == 1) {
+				wmi_cmd_struct_ptr = data;
+			} else {
+				return;
+			}
 		}
 
 		idx = wmi_unified_get_event_handler_ix(wmi_handle, id);
@@ -965,7 +967,7 @@ void __wmi_control_rx(struct wmi_unified *wmi_handle, wmi_buf_t evt_buf)
 	}
 
 #ifdef FEATURE_WLAN_D0WOW
-	if (wmi_handle->in_d0wow)
+	if (wmi_get_d0wow_flag(wmi_handle))
 		pr_debug("%s: WMI event ID is 0x%x\n", __func__, id);
 #endif
 
@@ -1085,6 +1087,36 @@ wmi_unified_detach(struct wmi_unified* wmi_handle)
     }
 }
 
+/**
+ * wmi_unified_remove_work() - detach for WMI work
+ * @wmi_handle: handle to WMI
+ *
+ * A function that does not fully detach WMI, but just remove work
+ * queue items associated with it. This is used to make sure that
+ * before any other processing code that may destroy related contexts
+ * (HTC, etc), work queue processing on WMI has already been stopped.
+ *
+ * Return: void.
+ */
+void
+wmi_unified_remove_work(struct wmi_unified* wmi_handle)
+{
+	wmi_buf_t buf;
+
+	VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_INFO,
+		"Enter: %s", __func__);
+	vos_flush_work(&wmi_handle->rx_event_work);
+	adf_os_spin_lock_bh(&wmi_handle->eventq_lock);
+	buf = adf_nbuf_queue_remove(&wmi_handle->event_queue);
+	while (buf) {
+		adf_nbuf_free(buf);
+		buf = adf_nbuf_queue_remove(&wmi_handle->event_queue);
+	}
+	adf_os_spin_unlock_bh(&wmi_handle->eventq_lock);
+	VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_INFO,
+		"Done: %s", __func__);
+}
+
 void wmi_htc_tx_complete(void *ctx, HTC_PACKET *htc_pkt)
 {
 	struct wmi_unified *wmi_handle = (struct wmi_unified *)ctx;
@@ -1165,6 +1197,18 @@ void wmi_set_target_suspend(wmi_unified_t wmi_handle, A_BOOL val)
 	adf_os_atomic_set(&wmi_handle->is_target_suspended, val);
 }
 
+/**
+ * wmi_set_tgt_assert() - set target assert configuration
+ * @wmi_handle: Pointer to WMI handle
+ * @val: Target assert config value
+ *
+ * Return: none
+ */
+void wmi_set_tgt_assert(wmi_unified_t wmi_handle, bool val)
+{
+	wmi_handle->tgt_force_assert_enable = val;
+}
+
 #ifdef FEATURE_RUNTIME_PM
 void wmi_set_runtime_pm_inprogress(wmi_unified_t wmi_handle, A_BOOL val)
 {
@@ -1175,6 +1219,19 @@ void wmi_set_runtime_pm_inprogress(wmi_unified_t wmi_handle, A_BOOL val)
 #ifdef FEATURE_WLAN_D0WOW
 void wmi_set_d0wow_flag(wmi_unified_t wmi_handle, A_BOOL flag)
 {
-	wmi_handle->in_d0wow = flag;
+	tp_wma_handle wma = wmi_handle->scn_handle;
+	struct ol_softc *scn =
+		vos_get_context(VOS_MODULE_ID_HIF, wma->vos_context);
+
+	adf_os_atomic_set(&scn->hif_sc->in_d0wow, flag);
+}
+
+A_BOOL wmi_get_d0wow_flag(wmi_unified_t wmi_handle)
+{
+	tp_wma_handle wma = wmi_handle->scn_handle;
+	struct ol_softc *scn =
+		vos_get_context(VOS_MODULE_ID_HIF, wma->vos_context);
+
+	return adf_os_atomic_read(&scn->hif_sc->in_d0wow);
 }
 #endif

@@ -229,8 +229,8 @@ int mdss_mdp_overlay_req_check(struct msm_fb_data_type *mfd,
 	yres = mfd->fbi->var.yres;
 
 	content_secure = (req->flags & MDP_SECURE_OVERLAY_SESSION);
-	if (!ctl->is_secure && content_secure &&
-				 (mfd->panel.type == WRITEBACK_PANEL)) {
+	if (content_secure && (mfd->panel.type == WRITEBACK_PANEL)
+			&& ctl && !ctl->is_secure) {
 		pr_debug("return due to security concerns\n");
 		return -EPERM;
 	}
@@ -2087,15 +2087,15 @@ static int mdss_mdp_overlay_unset(struct msm_fb_data_type *mfd, int ndx)
 	if (!mfd)
 		return -ENODEV;
 
-	mdp5_data = mfd_to_mdp5_data(mfd);
-
-	if (!mdp5_data || !mdp5_data->ctl)
-		return -ENODEV;
-
 	if (ndx & MDSS_MDP_ROT_SESSION_MASK) {
 		ret = mdss_mdp_rotator_unset(ndx);
 		return ret;
 	}
+
+	mdp5_data = mfd_to_mdp5_data(mfd);
+
+	if (!mdp5_data || !mdp5_data->ctl)
+		return -ENODEV;
 
 	ret = mutex_lock_interruptible(&mdp5_data->ov_lock);
 	if (ret)
@@ -4025,6 +4025,22 @@ static int mdss_mdp_overlay_precommit(struct msm_fb_data_type *mfd)
 				mfd->index, ret);
 		ret = -EPIPE;
 	}
+
+	/*
+	 * If we are in process of mode switch we may have an invalid state.
+	 * We can allow commit to happen if there are no pipes attached as only
+	 * border color will be seen regardless of resolution or mode.
+	 */
+	if ((mfd->switch_state != MDSS_MDP_NO_UPDATE_REQUESTED) &&
+			(mfd->switch_state != MDSS_MDP_WAIT_FOR_COMMIT)) {
+		if (list_empty(&mdp5_data->pipes_used)) {
+			mfd->switch_state = MDSS_MDP_WAIT_FOR_COMMIT;
+		} else {
+			pr_warn("Invalid commit on fb%d with state=%d\n",
+					mfd->index, mfd->switch_state);
+			ret = -EINVAL;
+		}
+	}
 	mutex_unlock(&mdp5_data->ov_lock);
 
 	return ret;
@@ -4587,6 +4603,7 @@ static int mdss_mdp_overlay_off(struct msm_fb_data_type *mfd)
 	struct mdss_overlay_private *mdp5_data;
 	struct mdss_mdp_mixer *mixer;
 	int need_cleanup;
+	bool destroy_ctl = false;
 
 	if (!mfd)
 		return -ENODEV;
@@ -4640,6 +4657,18 @@ static int mdss_mdp_overlay_off(struct msm_fb_data_type *mfd)
 	mutex_unlock(&mdp5_data->list_lock);
 	mutex_unlock(&mdp5_data->ov_lock);
 
+	destroy_ctl = !mfd->ref_cnt || mfd->panel_reconfig;
+
+	mutex_lock(&mfd->switch_lock);
+	if (mfd->switch_state != MDSS_MDP_NO_UPDATE_REQUESTED) {
+		destroy_ctl = true;
+		need_cleanup = false;
+		mfd->switch_state = MDSS_MDP_NO_UPDATE_REQUESTED;
+		pr_warn("fb%d blank while mode switch (%d) in progress\n",
+				mfd->index, mfd->switch_state);
+	}
+	mutex_unlock(&mfd->switch_lock);
+
 	if (need_cleanup) {
 		pr_debug("cleaning up pipes on fb%d\n", mfd->index);
 		mdss_mdp_overlay_kickoff(mfd, NULL);
@@ -4672,7 +4701,7 @@ ctl_stop:
 			mdss_mdp_ctl_notifier_unregister(mdp5_data->ctl,
 					&mfd->mdp_sync_pt_data.notifier);
 
-			if (!mfd->ref_cnt || mfd->panel_reconfig) {
+			if (destroy_ctl) {
 				mdp5_data->borderfill_enable = false;
 				mdss_mdp_ctl_destroy(mdp5_data->ctl);
 				mdp5_data->ctl = NULL;
@@ -4962,6 +4991,11 @@ static int mdss_mdp_update_panel_info(struct msm_fb_data_type *mfd,
 	struct mdss_mdp_ctl *ctl = mdp5_data->ctl;
 	struct mdss_panel_data *pdata;
 	struct mdss_mdp_ctl *sctl;
+
+	if (ctl == NULL) {
+		pr_debug("ctl not initialized\n");
+		return 0;
+	}
 
 	ret = mdss_mdp_ctl_intf_event(ctl, MDSS_EVENT_DSI_UPDATE_PANEL_DATA,
 						(void *)(unsigned long)mode);

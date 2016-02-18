@@ -923,6 +923,7 @@ struct hdd_adapter_s
 #endif
 
    v_S7_t rssi;
+   int8_t rssi_on_disconnect;
 #ifdef WLAN_FEATURE_LPSS
    v_BOOL_t rssi_send;
 #endif
@@ -992,8 +993,6 @@ struct hdd_adapter_s
     /* Time stamp for last completed RoC request */
     v_TIME_t lastRocTs;
 
-    /* work queue to defer the back to back p2p_listen */
-    struct delayed_work roc_work;
 };
 
 #define WLAN_HDD_GET_STATION_CTX_PTR(pAdapter) (&(pAdapter)->sessionCtx.station)
@@ -1440,9 +1439,11 @@ struct hdd_context_s
     struct completion ready_to_extwow;
 #endif
 
-    /* Time since boot up to extscan start (in micro seconds) */
-    v_U64_t ext_scan_start_since_boot;
+    /* Time since boot up to WiFi turn ON (in micro seconds) */
+    v_U64_t wifi_turn_on_time_since_boot;
 
+    /* RoC request queue and work */
+    struct delayed_work rocReqWork;
 #ifdef FEATURE_WLAN_EXTSCAN
     struct hdd_ext_scan_context ext_scan_context;
 #endif /* FEATURE_WLAN_EXTSCAN */
@@ -1465,8 +1466,6 @@ struct hdd_context_s
     /* Is htTxSTBC supported by target */
     uint8_t   ht_tx_stbc_supported;
 
-    /* RoC request queue and work */
-    struct work_struct rocReqWork;
     hdd_list_t hdd_roc_req_q;
 
 #ifdef WLAN_FEATURE_OFFLOAD_PACKETS
@@ -1694,5 +1693,10 @@ void hdd_get_fw_version(hdd_context_t *hdd_ctx,
 bool hdd_is_memdump_supported(void);
 
 const char *hdd_get_fwpath(void);
+
+void hdd_connect_result(struct net_device *dev, const u8 *bssid,
+			const u8 *req_ie, size_t req_ie_len,
+			const u8 * resp_ie, size_t resp_ie_len,
+			u16 status, gfp_t gfp);
 
 #endif    // end #if !defined( WLAN_HDD_MAIN_H )

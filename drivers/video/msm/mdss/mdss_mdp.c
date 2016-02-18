@@ -1229,7 +1229,7 @@ int mdss_iommu_init(struct mdss_data_type *mdata)
 	return 0;
 }
 
-void mdss_debug_enable_clock(int on)
+static void mdss_debug_enable_clock(int on)
 {
 	if (on)
 		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
@@ -3245,7 +3245,7 @@ int mdss_panel_get_boot_cfg(void)
 
 	if (!mdss_res || !mdss_res->pan_cfg.init_done)
 		return -EPROBE_DEFER;
-	if (mdss_res->pan_cfg.lk_cfg)
+	if (mdss_res->handoff_pending)
 		rc = 1;
 	else
 		rc = 0;
