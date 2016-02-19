@@ -1698,6 +1698,7 @@ static struct device_node *mdss_dsi_find_panel_of_node(
 				return NULL;
 			len = strlen(panel_cfg);
 		}
+
 		if (ctrl_id == 1)
 			strlcpy(ctrl_id_stream, "1:", 3);
 
