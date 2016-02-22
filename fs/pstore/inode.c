@@ -41,10 +41,6 @@
 
 #define	PSTORE_NAMELEN	64
 
-#ifdef VENDOR_EDIT  // modify by yangrujin@bsp for ramoops memcpy addr alignment 2015-05-27
-void *memcpy_pstore(void *dest, const void *src, size_t count);
-#endif
-
 static DEFINE_SPINLOCK(allpstore_lock);
 static LIST_HEAD(allpstore);
 
@@ -182,6 +178,8 @@ static int pstore_unlink(struct inode *dir, struct dentry *dentry)
 	if (p->psi->erase)
 		p->psi->erase(p->type, p->id, p->count,
 			      dentry->d_inode->i_ctime, p->psi);
+	else
+		return -EPERM;
 
 	return simple_unlink(dir, dentry);
 }
@@ -251,6 +249,7 @@ static void parse_options(char *options)
 
 static int pstore_remount(struct super_block *sb, int *flags, char *data)
 {
+	sync_filesystem(sb);
 	parse_options(data);
 
 	return 0;
@@ -321,10 +320,10 @@ int pstore_mkfile(enum pstore_type_id type, char *psname, u64 id, int count,
 			  psname, id);
 		break;
 	case PSTORE_TYPE_CONSOLE:
-		scnprintf(name, sizeof(name), "console-%s", psname);
+		scnprintf(name, sizeof(name), "console-%s-%lld", psname, id);
 		break;
 	case PSTORE_TYPE_FTRACE:
-		scnprintf(name, sizeof(name), "ftrace-%s", psname);
+		scnprintf(name, sizeof(name), "ftrace-%s-%lld", psname, id);
 		break;
 	case PSTORE_TYPE_MCE:
 		scnprintf(name, sizeof(name), "mce-%s-%lld", psname, id);
@@ -343,15 +342,11 @@ int pstore_mkfile(enum pstore_type_id type, char *psname, u64 id, int count,
 
 	mutex_lock(&root->d_inode->i_mutex);
 
-	rc = -ENOSPC;
 	dentry = d_alloc_name(root, name);
-	if (IS_ERR(dentry))
+	if (!dentry)
 		goto fail_lockedalloc;
-#ifdef VENDOR_EDIT  // modify by yangrujin@bsp for ramoops memcpy addr alignment 2015-05-27
-        memcpy_pstore(private->data, data, size);
-#else
+
 	memcpy(private->data, data, size);
-#endif
 	inode->i_size = private->size = size;
 
 	inode->i_private = private;

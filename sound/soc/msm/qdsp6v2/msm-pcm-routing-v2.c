@@ -729,9 +729,9 @@ int msm_pcm_routing_reg_phy_compr_stream(int fe_id, int perf_mode,
 }
 
 int msm_pcm_routing_channel_mixer(int fedai_id, bool perf_mode,
-				int dspst_id, int stream_type, int be_id)
+				  int dspst_id, int stream_type, int be_id)
 {
-	int copp_id;
+	int copp_id = 0;
 	int session_type = 0;
 	int path_type = 0;
 	int port_type = 0;
@@ -752,26 +752,25 @@ int msm_pcm_routing_channel_mixer(int fedai_id, bool perf_mode,
 			be_id = i;
 		}
 	}
-	pr_info("%s\n", __func__);
 	for (j = 0; j < MAX_COPPS_PER_PORT; j++) {
-			unsigned long copp =
+		unsigned long copp =
 			      session_copp_map[fedai_id][session_type][be_id];
 		if (test_bit(j, &copp)) {
 			copp_id = j;
 			break;
 		}
 	}
-	pr_debug("fe_id = %d,  be_id = %d, channel = %d copp_id = %d\n",
-				fedai_id, be_id, msm_bedais[be_id].channel,
-				copp_id);
+	pr_debug("%s: fe_id = %d,  be_id = %d, channel = %d copp_id = %d\n",
+		 __func__, fedai_id, be_id, msm_bedais[be_id].channel,
+		 copp_id);
 	programable_channel_mixer(msm_bedais[be_id].port_id, copp_id, dspst_id,
-				session_type, &channel_mux,
-				msm_bedais[be_id].channel);
+				  session_type, &channel_mux,
+				  msm_bedais[be_id].channel);
 	return 0;
 }
 
 int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
-					int dspst_id, int stream_type)
+				   int dspst_id, int stream_type)
 {
 	int i, j, session_type, path_type, port_type, topology, num_copps = 0;
 	struct route_payload payload;
@@ -1684,19 +1683,17 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 }
 
 static int msm_pcm_get_input_num_ch(struct snd_kcontrol *kcontrol,
-		       struct snd_ctl_elem_value *ucontrol)
+				    struct snd_ctl_elem_value *ucontrol)
 {
 	pr_debug("%s:\n", __func__);
 	return 0;
 }
 
 static int msm_pcm_set_input_num_ch(struct snd_kcontrol *kcontrol,
-		       struct snd_ctl_elem_value *ucontrol)
+				    struct snd_ctl_elem_value *ucontrol)
 {
-	pr_debug("%s()\n", __func__);
-
-	pr_debug("channel config = %d\n",
-			(unsigned int)(ucontrol->value.integer.value[0]));
+	pr_debug("%s: channel config = %d\n", __func__,
+		 (unsigned int)(ucontrol->value.integer.value[0]));
 	channel_mux.input_channel =
 			(unsigned int)(ucontrol->value.integer.value[0]);
 
@@ -1704,19 +1701,17 @@ static int msm_pcm_set_input_num_ch(struct snd_kcontrol *kcontrol,
 }
 
 static int msm_pcm_get_out_num_ch(struct snd_kcontrol *kcontrol,
-		       struct snd_ctl_elem_value *ucontrol)
+				  struct snd_ctl_elem_value *ucontrol)
 {
 	pr_debug("%s:\n", __func__);
 	return 0;
 }
 
 static int msm_pcm_set_out_num_ch(struct snd_kcontrol *kcontrol,
-		       struct snd_ctl_elem_value *ucontrol)
+				  struct snd_ctl_elem_value *ucontrol)
 {
-	pr_debug("%s()\n", __func__);
-
-	pr_debug("channel config = %d\n",
-			(unsigned int)(ucontrol->value.integer.value[0]));
+	pr_debug("%s: channel config = %d\n", __func__,
+		 (unsigned int)(ucontrol->value.integer.value[0]));
 	channel_mux.out_channel =
 			(unsigned int)(ucontrol->value.integer.value[0]);
 
@@ -1724,39 +1719,36 @@ static int msm_pcm_set_out_num_ch(struct snd_kcontrol *kcontrol,
 }
 
 static int msm_pcm_get_ch_mixer(struct snd_kcontrol *kcontrol,
-		       struct snd_ctl_elem_value *ucontrol)
+				struct snd_ctl_elem_value *ucontrol)
 {
 	pr_debug("%s:\n", __func__);
 	return 0;
 }
 
 static int msm_pcm_set_left_ch_mixer(struct snd_kcontrol *kcontrol,
-		       struct snd_ctl_elem_value *ucontrol)
+				     struct snd_ctl_elem_value *ucontrol)
 {
 	u16 out_ch = 0;
 	static u16 count;
 
-	pr_debug("%s()\n", __func__);
-	pr_debug("channel config1 = %d\n",
-		 (unsigned int)(ucontrol->value.integer.value[0]));
-	pr_debug("channel config2 = %d\n",
+	pr_debug("%s: channel config1 = %d, channel config2 = %d\n",
+		  __func__,
+		 (unsigned int)(ucontrol->value.integer.value[0]),
 		 (unsigned int)(ucontrol->value.integer.value[1]));
-	pr_debug("channel config3 = %d\n",
-		 (unsigned int)(ucontrol->value.integer.value[2]));
-	pr_debug("channel config4 = %d\n",
-		  (unsigned int)(ucontrol->value.integer.value[3]));
+	pr_debug("%s: channel config3 = %d, channel config4 = %d\n",
+		  __func__,
+		 (unsigned int)(ucontrol->value.integer.value[2]),
+		 (unsigned int)(ucontrol->value.integer.value[3]));
 
 	out_ch = ((struct soc_multi_mixer_control *)
 			kcontrol->private_value)->shift;
 
-	pr_debug("%s: Out %d\n", __func__, out_ch);
 	channel_mux.channel_config[out_ch][count] =
 		(unsigned int)(ucontrol->value.integer.value[count]);
-	pr_err("channel_config[%d][%d] = %d\n",
-		out_ch, count,
-		channel_mux.channel_config[out_ch][count]);
+	pr_debug("%s: channel_config[%d][%d] = %d\n",
+		 __func__, out_ch, count,
+		 channel_mux.channel_config[out_ch][count]);
 	count++;
-	pr_debug("count %d\n ", count);
 
 	if (count > (channel_mux.input_channel - 1))
 		count = 0;
@@ -6133,6 +6125,13 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 		snd_ctl_add(platform->card->snd_card, kctl);
 	}
 
+
+	for (i = 0; i < ARRAY_SIZE(msm_snd_controls); i++) {
+		kctl = snd_ctl_new1(&msm_snd_controls[i], &channel_mux);
+		if (kctl == NULL)
+			return -ENOMEM;
+		snd_ctl_add(platform->card->snd_card, kctl);
+	}
 
 	msm_dts_eagle_add_controls(platform);
 	return 0;

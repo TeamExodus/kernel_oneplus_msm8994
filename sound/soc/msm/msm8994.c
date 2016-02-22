@@ -275,7 +275,6 @@ static struct wcd9xxx_mbhc_config mbhc_cfg = {
 	.do_recalibration = true,
 	.use_vddio_meas = true,
 	.enable_anc_mic_detect = false,
-/* Modified begin by Ming.Liu@MultiMedia.AudioDrv on 2014-10-10 for headset detect */
 #ifndef VENDOR_EDIT
 	.hw_jack_type = SIX_POLE_JACK,
 #else
@@ -3624,7 +3623,6 @@ static struct snd_soc_dai_link msm8994_common_dai_links[] = {
 		.codec_dai_name = "tomtom_mad1",
 		.codec_name = "tomtom_codec",
 	},
-
 
 #ifdef VENDOR_EDIT
  /* add begin by zhiguang.su@MultiMedia.AudioDrv on 2015-03-11,add for enable quat i2s */
