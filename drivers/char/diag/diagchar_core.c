@@ -348,7 +348,7 @@ static int diagchar_close(struct inode *inode, struct file *file)
 	* This will specially help in case of ungraceful exit of any DCI client
 	* This call will remove any pending registrations of such client
 	*/
-	dci_entry = dci_lookup_client_entry_pid(current->pid);
+	dci_entry = dci_lookup_client_entry_pid(current->tgid);
 	if (dci_entry)
 		diag_dci_deinit_client(dci_entry);
 	/* If the exiting process is the socket process */
@@ -1157,6 +1157,13 @@ static int diag_ioctl_set_buffering_mode(unsigned long ioarg)
 
 	if (copy_from_user(&params, (void __user *)ioarg, sizeof(params)))
 		return -EFAULT;
+
+	if (params.peripheral >= NUM_SMD_CONTROL_CHANNELS)
+		return -EINVAL;
+
+	mutex_lock(&driver->mode_lock);
+	driver->buffering_flag[params.peripheral] = 1;
+	mutex_unlock(&driver->mode_lock);
 
 	return diag_send_peripheral_buffering_mode(&params);
 }

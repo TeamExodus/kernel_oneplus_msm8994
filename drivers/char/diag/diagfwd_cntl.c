@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2015 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -297,8 +297,6 @@ static void process_log_range_report(uint8_t *buf, uint32_t len,
 	int peripheral = 0;
 	int header_len = sizeof(struct diag_ctrl_log_range_report);
 	uint8_t *ptr = buf;
-	uint8_t *temp = NULL;
-	uint32_t mask_size;
 	struct diag_ctrl_log_range_report *header = NULL;
 	struct diag_ctrl_log_range *log_range = NULL;
 	struct diag_log_mask_t *mask_ptr = NULL;
@@ -326,21 +324,8 @@ static void process_log_range_report(uint8_t *buf, uint32_t len,
 		}
 		mask_ptr = (struct diag_log_mask_t *)log_mask.ptr;
 		mask_ptr = &mask_ptr[log_range->equip_id];
-		mask_size = LOG_ITEMS_TO_SIZE(log_range->num_items);
-		if (mask_size < mask_ptr->range)
-			goto proceed;
-
-		temp = krealloc(mask_ptr->ptr, mask_size, GFP_KERNEL);
-		if (!temp) {
-			pr_err("diag: In %s, Unable to reallocate log mask ptr to size: %d, equip_id: %d\n",
-			       __func__, mask_size, log_range->equip_id);
-			continue;
-		}
-		mask_ptr->ptr = temp;
-		mask_ptr->range = mask_size;
-proceed:
-		if (log_range->num_items > mask_ptr->num_items)
-			mask_ptr->num_items = log_range->num_items;
+		mask_ptr->num_items = log_range->num_items;
+		mask_ptr->range = LOG_ITEMS_TO_SIZE(log_range->num_items);
 	}
 	mutex_unlock(&log_mask.lock);
 }
@@ -349,7 +334,6 @@ static int update_msg_mask_tbl_entry(struct diag_msg_mask_t *mask,
 				     struct diag_ssid_range_t *range)
 {
 	uint32_t temp_range;
-	uint32_t *temp = NULL;
 
 	if (!mask || !range)
 		return -EIO;
@@ -360,11 +344,6 @@ static int update_msg_mask_tbl_entry(struct diag_msg_mask_t *mask,
 	}
 	if (range->ssid_last >= mask->ssid_last) {
 		temp_range = range->ssid_last - mask->ssid_first + 1;
-		temp = krealloc(mask->ptr, temp_range * sizeof(uint32_t),
-				GFP_KERNEL);
-		if (!temp)
-			return -ENOMEM;
-		mask->ptr = temp;
 		mask->ssid_last = range->ssid_last;
 		mask->range = temp_range;
 	}
@@ -834,7 +813,7 @@ void diag_real_time_work_fn(struct work_struct *work)
 }
 #endif
 
-int diag_send_diag_mode_update_by_smd(struct diag_smd_info *smd_info,
+static int __diag_send_diag_mode_update_by_smd(struct diag_smd_info *smd_info,
 							int real_time)
 {
 	char buf[sizeof(struct diag_ctrl_msg_diagmode)];
@@ -871,6 +850,24 @@ int diag_send_diag_mode_update_by_smd(struct diag_smd_info *smd_info,
 	return err;
 }
 
+int diag_send_diag_mode_update_by_smd(struct diag_smd_info *smd_info,
+							int real_time)
+{
+	int i;
+
+	for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
+		if (!driver->buffering_flag[i])
+			continue;
+		/*
+		 * One of the peripherals is in buffering mode. Don't set
+		 * the RT value.
+		 */
+		return -EINVAL;
+	}
+
+	return __diag_send_diag_mode_update_by_smd(smd_info, real_time);
+}
+
 int diag_send_peripheral_buffering_mode(struct diag_buffering_mode_t *params)
 {
 	int err = 0;
@@ -887,6 +884,9 @@ int diag_send_peripheral_buffering_mode(struct diag_buffering_mode_t *params)
 		       peripheral);
 		return -EINVAL;
 	}
+
+	if (!driver->buffering_flag[peripheral])
+		return -EINVAL;
 
 	switch (params->mode) {
 	case DIAG_BUFFERING_MODE_STREAMING:
@@ -905,6 +905,7 @@ int diag_send_peripheral_buffering_mode(struct diag_buffering_mode_t *params)
 	if (!driver->peripheral_buffering_support[peripheral]) {
 		pr_debug("diag: In %s, peripheral %d doesn't support buffering\n",
 			 __func__, peripheral);
+		driver->buffering_flag[peripheral] = 0;
 		return -EIO;
 	}
 
@@ -937,7 +938,7 @@ int diag_send_peripheral_buffering_mode(struct diag_buffering_mode_t *params)
 		       __func__, peripheral, err);
 		goto fail;
 	}
-	err = diag_send_diag_mode_update_by_smd(smd_info, mode);
+	err = __diag_send_diag_mode_update_by_smd(smd_info, mode);
 	if (err) {
 		pr_err("diag: In %s, unable to send mode update to peripheral %d, mode: %d, err: %d\n",
 		       __func__, peripheral, mode, err);
@@ -947,6 +948,8 @@ int diag_send_peripheral_buffering_mode(struct diag_buffering_mode_t *params)
 	driver->buffering_mode[peripheral].mode = params->mode;
 	driver->buffering_mode[peripheral].low_wm_val = params->low_wm_val;
 	driver->buffering_mode[peripheral].high_wm_val = params->high_wm_val;
+	if (mode == DIAG_BUFFERING_MODE_STREAMING)
+		driver->buffering_flag[peripheral] = 0;
 fail:
 	mutex_unlock(&driver->mode_lock);
 	return err;
@@ -1202,6 +1205,7 @@ int diagfwd_cntl_init(void)
 		goto err;
 
 	for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
+		driver->buffering_flag[i] = 0;
 		ret = diag_smd_constructor(&driver->smd_cntl[i], i,
 							SMD_CNTL_TYPE);
 		if (ret)

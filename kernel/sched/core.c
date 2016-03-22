@@ -1209,7 +1209,11 @@ unsigned int min_max_freq = 1;
 
 unsigned int max_capacity = 1024; /* max(rq->capacity) */
 unsigned int min_capacity = 1024; /* min(rq->capacity) */
-unsigned int max_load_scale_factor = 1024; /* max(rq->load_scale_factor) */
+unsigned int max_load_scale_factor = 1024; /* max possible load scale factor */
+unsigned int max_possible_capacity = 1024; /* max(rq->max_possible_capacity) */
+
+/* Mask of all CPUs that have  max_possible_capacity */
+cpumask_t mpc_mask = CPU_MASK_ALL;
 
 /* Window size (in ns) */
 __read_mostly unsigned int sched_ravg_window = 10000000;
@@ -1324,6 +1328,8 @@ static inline unsigned int load_to_freq(struct rq *rq, u64 load)
 static int send_notification(struct rq *rq)
 {
 	unsigned int cur_freq, freq_required;
+	unsigned long flags;
+	int rc = 0;
 
 	if (!sched_enable_hmp)
 		return 0;
@@ -1334,7 +1340,14 @@ static int send_notification(struct rq *rq)
 	if (nearly_same_freq(cur_freq, freq_required))
 		return 0;
 
-	return 1;
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	if (!rq->notifier_sent) {
+		rq->notifier_sent = 1;
+		rc = 1;
+	}
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
+
+	return rc;
 }
 
 /* Alert governor if there is a need to change frequency */
@@ -1643,21 +1656,6 @@ static void update_history(struct rq *rq, struct task_struct *p,
 	if (!runtime || is_idle_task(p) || exiting_task(p) || !samples)
 			goto done;
 
-#ifdef VENDOR_EDIT
-	if (p->ravg.mitigated) {
-		/* update history accroding to previous records
-		 * e.g. 60% loading in big cluster becomes 60% in smallest one
-		 */
-		for (ridx = 0; ridx < sched_ravg_hist_size; ridx++) {
-			hist[ridx] = div64_u64((u64)hist[ridx] * 1024
-					, (u64)max_load_scale_factor);
-			sum += hist[ridx];
-			if (hist[ridx] > max)
-				max = hist[ridx];
-		}
-		goto update_demand;
-	}
-#endif
 	/* Push new 'runtime' value onto stack */
 	widx = sched_ravg_hist_size - 1;
 	ridx = widx - samples;
@@ -1675,9 +1673,6 @@ static void update_history(struct rq *rq, struct task_struct *p,
 			max = hist[widx];
 	}
 
-#ifdef VENDOR_EDIT
-update_demand:
-#endif
 	p->ravg.sum = 0;
 	if (p->on_rq)
 		p->sched_class->dec_hmp_sched_stats(rq, p);
@@ -1770,11 +1765,7 @@ static void update_task_demand(struct task_struct *p, struct rq *rq,
 	u32 window_size = sched_ravg_window;
 
 	new_window = mark_start < window_start;
-#ifdef VENDOR_EDIT
-	if (!account_busy_for_task_demand(p, event) || p->ravg.mitigated) {
-#else
 	if (!account_busy_for_task_demand(p, event)) {
-#endif
 		if (new_window)
 			/* If the time accounted isn't being accounted as
 			 * busy time, and a new window started, only the
@@ -1783,13 +1774,6 @@ static void update_task_demand(struct task_struct *p, struct rq *rq,
 			 * elapsed, but since empty windows are dropped,
 			 * it is not necessary to account those. */
 			update_history(rq, p, p->ravg.sum, 1, event);
-#ifdef VENDOR_EDIT
-		if (p->ravg.mitigated) {
-			/* force update history */
-			update_history(rq, p, 1, RAVG_HIST_SIZE_MAX, event);
-			p->ravg.mitigated = 0;
-		}
-#endif
 		return;
 	}
 
@@ -2143,35 +2127,93 @@ void reset_all_window_stats(u64 window_start, unsigned int window_size)
 
 #ifdef CONFIG_SCHED_FREQ_INPUT
 
-unsigned long sched_get_busy(int cpu)
+static inline u64
+scale_load_to_freq(u64 load, unsigned int src_freq, unsigned int dst_freq)
+{
+	return div64_u64(load * (u64)src_freq, (u64)dst_freq);
+}
+
+void sched_get_cpus_busy(unsigned long *busy, const struct cpumask *query_cpus)
 {
 	unsigned long flags;
-	struct rq *rq = cpu_rq(cpu);
-	u64 load;
+	struct rq *rq;
+	const int cpus = cpumask_weight(query_cpus);
+	u64 load[cpus];
+	unsigned int cur_freq[cpus], max_freq[cpus];
+	int notifier_sent[cpus];
+	int cpu, i = 0;
+	unsigned int window_size;
+
+	if (unlikely(cpus == 0))
+		return;
 
 	/*
 	 * This function could be called in timer context, and the
 	 * current task may have been executing for a long time. Ensure
 	 * that the window stats are current by doing an update.
 	 */
-	raw_spin_lock_irqsave(&rq->lock, flags);
-	update_task_ravg(rq->curr, rq, TASK_UPDATE, sched_clock(), 0);
-	load = rq->old_busy_time = rq->prev_runnable_sum;
-	raw_spin_unlock_irqrestore(&rq->lock, flags);
+	local_irq_save(flags);
+	for_each_cpu(cpu, query_cpus)
+		raw_spin_lock(&cpu_rq(cpu)->lock);
 
-	/*
-	 * Scale load in reference to rq->max_possible_freq.
-	 *
-	 * Note that scale_load_to_cpu() scales load in reference to
-	 * rq->max_freq
-	 */
-	load = scale_load_to_cpu(load, cpu);
-	load = div64_u64(load * (u64)rq->max_freq, (u64)rq->max_possible_freq);
-	load = div64_u64(load, NSEC_PER_USEC);
+	window_size = sched_ravg_window;
 
-	trace_sched_get_busy(cpu, load);
+	for_each_cpu(cpu, query_cpus) {
+		rq = cpu_rq(cpu);
 
-	return load;
+		update_task_ravg(rq->curr, rq, TASK_UPDATE, sched_clock(), 0);
+		load[i] = rq->old_busy_time = rq->prev_runnable_sum;
+		/*
+		 * Scale load in reference to rq->max_possible_freq.
+		 *
+		 * Note that scale_load_to_cpu() scales load in reference to
+		 * rq->max_freq.
+		 */
+		load[i] = scale_load_to_cpu(load[i], cpu);
+
+		notifier_sent[i] = rq->notifier_sent;
+		rq->notifier_sent = 0;
+		cur_freq[i] = rq->cur_freq;
+		max_freq[i] = rq->max_freq;
+		i++;
+	}
+
+	for_each_cpu(cpu, query_cpus)
+		raw_spin_unlock(&(cpu_rq(cpu))->lock);
+	local_irq_restore(flags);
+
+	i = 0;
+	for_each_cpu(cpu, query_cpus) {
+		rq = cpu_rq(cpu);
+
+		if (!notifier_sent[i]) {
+			load[i] = scale_load_to_freq(load[i], max_freq[i],
+						     cur_freq[i]);
+			if (load[i] > window_size)
+				load[i] = window_size;
+			load[i] = scale_load_to_freq(load[i], cur_freq[i],
+						     rq->max_possible_freq);
+		} else {
+			load[i] = scale_load_to_freq(load[i], max_freq[i],
+						     rq->max_possible_freq);
+		}
+
+		busy[i] = div64_u64(load[i], NSEC_PER_USEC);
+
+		trace_sched_get_busy(cpu, busy[i]);
+		i++;
+	}
+}
+
+unsigned long sched_get_busy(int cpu)
+{
+	struct cpumask query_cpu = CPU_MASK_NONE;
+	unsigned long busy;
+
+	cpumask_set_cpu(cpu, &query_cpu);
+	sched_get_cpus_busy(&busy, &query_cpu);
+
+	return busy;
 }
 
 void sched_set_io_is_busy(int val)
@@ -2295,25 +2337,36 @@ heavy_task_wakeup(struct task_struct *p, struct rq *rq, int event)
 #endif	/* CONFIG_SCHED_FREQ_INPUT */
 
 /* Keep track of max/min capacity possible across CPUs "currently" */
-static void update_min_max_capacity(void)
+static void __update_min_max_capacity(void)
 {
 	int i;
 	int max = 0, min = INT_MAX;
-	int max_lsf = 0;
 
-	for_each_possible_cpu(i) {
+	for_each_online_cpu(i) {
 		if (cpu_rq(i)->capacity > max)
 			max = cpu_rq(i)->capacity;
 		if (cpu_rq(i)->capacity < min)
 			min = cpu_rq(i)->capacity;
-
-		if (cpu_rq(i)->load_scale_factor > max_lsf)
-			max_lsf = cpu_rq(i)->load_scale_factor;
 	}
 
 	max_capacity = max;
 	min_capacity = min;
-	max_load_scale_factor = max_lsf;
+}
+
+static void update_min_max_capacity(void)
+{
+	unsigned long flags;
+	int i;
+
+	local_irq_save(flags);
+	for_each_possible_cpu(i)
+		raw_spin_lock(&cpu_rq(i)->lock);
+
+	__update_min_max_capacity();
+
+	for_each_possible_cpu(i)
+		raw_spin_unlock(&cpu_rq(i)->lock);
+	local_irq_restore(flags);
 }
 
 /*
@@ -2390,15 +2443,21 @@ static int cpufreq_notifier_policy(struct notifier_block *nb,
 		unsigned long val, void *data)
 {
 	struct cpufreq_policy *policy = (struct cpufreq_policy *)data;
-	int i;
+	int i, update_max = 0;
+	u64 highest_mpc = 0, highest_mplsf = 0;
 	const struct cpumask *cpus = policy->related_cpus;
 	unsigned int orig_min_max_freq = min_max_freq;
 	unsigned int orig_max_possible_freq = max_possible_freq;
 	/* Initialized to policy->max in case policy->related_cpus is empty! */
 	unsigned int orig_max_freq = policy->max;
 
-	if (val != CPUFREQ_NOTIFY)
+	if (val != CPUFREQ_NOTIFY && val != CPUFREQ_REMOVE_POLICY)
 		return 0;
+
+	if (val == CPUFREQ_REMOVE_POLICY) {
+		update_min_max_capacity();
+		return 0;
+	}
 
 	for_each_cpu(i, policy->related_cpus) {
 		cpumask_copy(&cpu_rq(i)->freq_domain_cpumask,
@@ -2415,11 +2474,6 @@ static int cpufreq_notifier_policy(struct notifier_block *nb,
 	min_max_freq = min(min_max_freq, policy->cpuinfo.max_freq);
 	BUG_ON(!min_max_freq);
 	BUG_ON(!policy->max);
-
-	if (orig_max_possible_freq == max_possible_freq &&
-		orig_min_max_freq == min_max_freq &&
-		orig_max_freq == policy->max)
-			return 0;
 
 	/*
 	 * A changed min_max_freq or max_possible_freq (possible during bootup)
@@ -2445,8 +2499,10 @@ static int cpufreq_notifier_policy(struct notifier_block *nb,
 	 */
 
 	if (orig_min_max_freq != min_max_freq ||
-		orig_max_possible_freq != max_possible_freq)
+		orig_max_possible_freq != max_possible_freq) {
 			cpus = cpu_possible_mask;
+			update_max = 1;
+	}
 
 	/*
 	 * Changed load_scale_factor can trigger reclassification of tasks as
@@ -2456,16 +2512,39 @@ static int cpufreq_notifier_policy(struct notifier_block *nb,
 	pre_big_small_task_count_change(cpu_possible_mask);
 	for_each_cpu(i, cpus) {
 		struct rq *rq = cpu_rq(i);
-		u64 max_possible_capacity;
 
 		rq->capacity = compute_capacity(i);
-		max_possible_capacity = div_u64(((u64) rq->capacity) *
-					rq->max_possible_freq, rq->max_freq);
-		rq->max_possible_capacity = (int) max_possible_capacity;
 		rq->load_scale_factor = compute_load_scale_factor(i);
+
+		if (update_max) {
+			u64 mpc, mplsf;
+
+			mpc = div_u64(((u64) rq->capacity) *
+				rq->max_possible_freq, rq->max_freq);
+			rq->max_possible_capacity = (int) mpc;
+
+			mplsf = div_u64(((u64) rq->load_scale_factor) *
+				rq->max_possible_freq, rq->max_freq);
+
+			if (mpc > highest_mpc) {
+				highest_mpc = mpc;
+				cpumask_clear(&mpc_mask);
+				cpumask_set_cpu(i, &mpc_mask);
+			} else if (mpc == highest_mpc) {
+				cpumask_set_cpu(i, &mpc_mask);
+			}
+
+			if (mplsf > highest_mplsf)
+				highest_mplsf = mplsf;
+		}
 	}
 
-	update_min_max_capacity();
+	if (update_max) {
+		max_possible_capacity = highest_mpc;
+		max_load_scale_factor = highest_mplsf;
+	}
+
+	__update_min_max_capacity();
 	post_big_small_task_count_change(cpu_possible_mask);
 
 	return 0;
@@ -2844,7 +2923,7 @@ out:
 		 * leave kernel.
 		 */
 		if (p->mm && printk_ratelimit()) {
-			printk_sched("process %d (%s) no longer affine to cpu%d\n",
+			printk_deferred("process %d (%s) no longer affine to cpu%d\n",
 					task_pid_nr(p), p->comm, cpu);
 		}
 	}
@@ -3225,7 +3304,7 @@ static void try_to_wake_up_local(struct task_struct *p)
 	struct rq *rq = task_rq(p);
 
 	if (rq != this_rq() || p == current) {
-		printk_sched("%s: Failed to wakeup task %d (%s), rq = %p, this_rq = %p, p = %p, current = %p\n",
+		printk_deferred("%s: Failed to wakeup task %d (%s), rq = %p, this_rq = %p, p = %p, current = %p\n",
 			__func__, task_pid_nr(p), p->comm, rq,
 			this_rq(), p, current);
 		return;
@@ -5808,6 +5887,7 @@ int sched_setscheduler_nocheck(struct task_struct *p, int policy,
 	};
 	return __sched_setscheduler(p, &attr, false);
 }
+EXPORT_SYMBOL(sched_setscheduler_nocheck);
 
 static int
 do_sched_setscheduler(pid_t pid, int policy, struct sched_param __user *param)
@@ -9041,6 +9121,7 @@ void __init sched_init(void)
 		rq->wakeup_latency = 0;
 		rq->wakeup_energy = 0;
 #ifdef CONFIG_SCHED_HMP
+		cpumask_set_cpu(i, &rq->freq_domain_cpumask);
 		rq->cur_freq = 1;
 		rq->max_freq = 1;
 		rq->min_freq = 1;
@@ -9063,6 +9144,7 @@ void __init sched_init(void)
 #ifdef CONFIG_SCHED_FREQ_INPUT
 		rq->old_busy_time = 0;
 		rq->curr_runnable_sum = rq->prev_runnable_sum = 0;
+		rq->notifier_sent = 0;
 #endif
 #endif
 
@@ -9759,23 +9841,6 @@ static void cpu_cgroup_css_offline(struct cgroup *cgrp)
 	sched_offline_group(tg);
 }
 
-static int
-cpu_cgroup_allow_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
-{
-	const struct cred *cred = current_cred(), *tcred;
-	struct task_struct *task;
-
-	cgroup_taskset_for_each(task, cgrp, tset) {
-		tcred = __task_cred(task);
-
-		if ((current != task) && !capable(CAP_SYS_NICE) &&
-		    cred->euid != tcred->uid && cred->euid != tcred->suid)
-			return -EACCES;
-	}
-
-	return 0;
-}
-
 static int cpu_cgroup_can_attach(struct cgroup *cgrp,
 				 struct cgroup_taskset *tset)
 {
@@ -9921,11 +9986,6 @@ static int tg_set_cfs_bandwidth(struct task_group *tg, u64 period, u64 quota)
 	if (period > max_cfs_quota_period)
 		return -EINVAL;
 
-	/*
-	 * Prevent race between setting of cfs_rq->runtime_enabled and
-	 * unthrottle_offline_cfs_rqs().
-	 */
-	get_online_cpus();
 	mutex_lock(&cfs_constraints_mutex);
 	ret = __cfs_schedulable(tg, period, quota);
 	if (ret)
@@ -9947,11 +10007,12 @@ static int tg_set_cfs_bandwidth(struct task_group *tg, u64 period, u64 quota)
 	/* restart the period timer (if active) to handle new period expiry */
 	if (runtime_enabled && cfs_b->timer_active) {
 		/* force a reprogram */
-		__start_cfs_bandwidth(cfs_b, true);
+		cfs_b->timer_active = 0;
+		__start_cfs_bandwidth(cfs_b);
 	}
 	raw_spin_unlock_irq(&cfs_b->lock);
 
-	for_each_online_cpu(i) {
+	for_each_possible_cpu(i) {
 		struct cfs_rq *cfs_rq = tg->cfs_rq[i];
 		struct rq *rq = cfs_rq->rq;
 
@@ -9967,38 +10028,9 @@ static int tg_set_cfs_bandwidth(struct task_group *tg, u64 period, u64 quota)
 		cfs_bandwidth_usage_dec();
 out_unlock:
 	mutex_unlock(&cfs_constraints_mutex);
-	put_online_cpus();
 
 	return ret;
 }
-
-#ifdef VENDOR_EDIT
-int tg_set_cfs_quota_per_task(struct task_group *tg, long cfs_quota_us)
-{
-	struct cfs_bandwidth *cfs_b = &tg->cfs_bandwidth;
-	u64 quota, period;
-
-	period = ktime_to_ns(tg->cfs_bandwidth.period);
-	quota = tg->cfs_bandwidth.quota;
-
-	raw_spin_lock_irq(&cfs_b->lock);
-	if (cfs_quota_us > 0)
-		cfs_b->quota_per_task = (u64)cfs_quota_us * NSEC_PER_USEC;
-	raw_spin_unlock_irq(&cfs_b->lock);
-
-	return tg_set_cfs_bandwidth(tg, period, quota);
-}
-
-long tg_get_cfs_quota_per_task(struct task_group *tg)
-{
-	u64 quota_us;
-
-	quota_us = tg->cfs_bandwidth.quota_per_task;
-	do_div(quota_us, NSEC_PER_USEC);
-
-	return quota_us;
-}
-#endif
 
 int tg_set_cfs_quota(struct task_group *tg, long cfs_quota_us)
 {
@@ -10045,19 +10077,6 @@ long tg_get_cfs_period(struct task_group *tg)
 
 	return cfs_period_us;
 }
-
-#ifdef VENDOR_EDIT
-static s64 cpu_cfs_quota_per_task_read_s64(struct cgroup *cgrp, struct cftype *cft)
-{
-	return tg_get_cfs_quota_per_task(cgroup_tg(cgrp));
-}
-
-static int cpu_cfs_quota_per_task_write_s64(struct cgroup *cgrp, struct cftype *cftype,
-				s64 cfs_quota_us)
-{
-	return tg_set_cfs_quota_per_task(cgroup_tg(cgrp), cfs_quota_us);
-}
-#endif
 
 static s64 cpu_cfs_quota_read_s64(struct cgroup *cgrp, struct cftype *cft)
 {
@@ -10219,13 +10238,6 @@ static struct cftype cpu_files[] = {
 	},
 #endif
 #ifdef CONFIG_CFS_BANDWIDTH
-#ifdef VENDOR_EDIT
-	{
-		.name = "cfs_quota_us_per_task",
-		.read_s64 = cpu_cfs_quota_per_task_read_s64,
-		.write_s64 = cpu_cfs_quota_per_task_write_s64,
-	},
-#endif
 	{
 		.name = "cfs_quota_us",
 		.read_s64 = cpu_cfs_quota_read_s64,
@@ -10264,7 +10276,7 @@ struct cgroup_subsys cpu_cgroup_subsys = {
 	.css_offline	= cpu_cgroup_css_offline,
 	.can_attach	= cpu_cgroup_can_attach,
 	.attach		= cpu_cgroup_attach,
-	.allow_attach	= cpu_cgroup_allow_attach,
+	.allow_attach	= subsys_cgroup_allow_attach,
 	.exit		= cpu_cgroup_exit,
 	.subsys_id	= cpu_cgroup_subsys_id,
 	.base_cftypes	= cpu_files,

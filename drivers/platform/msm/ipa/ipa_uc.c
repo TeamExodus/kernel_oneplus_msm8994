@@ -256,6 +256,17 @@ int ipa_uc_state_check(void)
 }
 EXPORT_SYMBOL(ipa_uc_state_check);
 
+/**
+ * ipa_uc_loaded_check() - Check the uC has been loaded
+ *
+ * Return value: 1 if the uC is loaded, 0 otherwise
+ */
+int ipa_uc_loaded_check(void)
+{
+	return ipa_ctx->uc_ctx.uc_loaded;
+}
+EXPORT_SYMBOL(ipa_uc_loaded_check);
+
 static void ipa_uc_event_handler(enum ipa_irq_type interrupt,
 				 void *private_data,
 				 void *interrupt_data)
@@ -290,6 +301,7 @@ static void ipa_uc_event_handler(enum ipa_irq_type interrupt,
 	    IPA_HW_2_CPU_EVENT_ERROR) {
 		evt.raw32b = ipa_ctx->uc_ctx.uc_sram_mmio->eventParams;
 		IPADBG("uC evt errorType=%u\n", evt.params.errorType);
+		BUG();
 	} else if (ipa_ctx->uc_ctx.uc_sram_mmio->eventOp ==
 		IPA_HW_2_CPU_EVENT_LOG_INFO) {
 			IPADBG("uC evt log info ofst=0x%x\n",
@@ -386,6 +398,11 @@ static void ipa_uc_response_hdlr(enum ipa_irq_type interrupt,
 			IPA_HW_2_CPU_RESPONSE_INIT_COMPLETED) {
 		ipa_ctx->uc_ctx.uc_loaded = true;
 		IPAERR("IPA uC loaded\n");
+		/*
+		 * The proxy vote is held until uC is loaded to ensure that
+		 * IPA_HW_2_CPU_RESPONSE_INIT_COMPLETED is received.
+		 */
+		ipa_proxy_clk_unvote();
 		for (i = 0; i < IPA_HW_NUM_FEATURES; i++) {
 			if (uc_hdlrs[i].ipa_uc_loaded_hdlr)
 				uc_hdlrs[i].ipa_uc_loaded_hdlr();
