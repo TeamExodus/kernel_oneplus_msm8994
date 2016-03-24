@@ -1,5 +1,14 @@
 ifeq ($(CONFIG_OF),y)
-dtb-$(CONFIG_ARCH_MSM8994) += msm8994-v1-mtp_14049_HW_14.dtb \
+dtb-$(CONFIG_ARCH_MSM8994) += msm8994-v1-mtp_14049_HW_11.dtb \
+	msm8994-v2.0-mtp_14049_HW_11.dtb \
+	msm8994-v2.1-mtp_14049_HW_11.dtb \
+	msm8994-v1-mtp_14049_HW_12.dtb \
+	msm8994-v2.0-mtp_14049_HW_12.dtb \
+	msm8994-v2.1-mtp_14049_HW_12.dtb \
+	msm8994-v1-mtp_14049_HW_13.dtb \
+	msm8994-v2.0-mtp_14049_HW_13.dtb \
+	msm8994-v2.1-mtp_14049_HW_13.dtb \
+	msm8994-v1-mtp_14049_HW_14.dtb \
 	msm8994-v2.0-mtp_14049_HW_14.dtb \
 	msm8994-v2.1-mtp_14049_HW_14.dtb
 
