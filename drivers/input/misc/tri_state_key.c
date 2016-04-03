@@ -31,10 +31,9 @@
 
 /*
 	        KEY1(GPIO34)	KEY2(GPIO77)
-1½ÅºÍ4½ÅÁ¬½Ó	0	            1         | MUTE
-2½ÅºÍ5½ÅÁ¬½Ó	1	            1         | Do Not Disturb
-4½ÅºÍ3½ÅÁ¬½Ó	1	            0         | Normal 
-
+1è„šå’Œ4è„šè¿žæŽ¥	0	            1         | MUTE
+2è„šå’Œ5è„šè¿žæŽ¥	1	            1         | Do Not Disturb
+4è„šå’Œ3è„šè¿žæŽ¥	1	            0         | Normal 
 */
 typedef enum {
     MODE_UNKNOWN,
@@ -44,10 +43,15 @@ typedef enum {
 	MODE_MAX_NUM
 } tri_mode_t;
 
+#define MODE_TOTAL_SILENCE 600
+#define MODE_ALARMS_ONLY 601
+#define MODE_PRIORITY_ONLY 602
+#define MODE_NONE 603
+
 static int current_mode = 0;
-static int keyCode_slider_top = 600;
-static int keyCode_slider_middle = 601;
-static int keyCode_slider_bottom = 602;
+static int keyCode_slider_top = MODE_ALARMS_ONLY;
+static int keyCode_slider_middle = MODE_PRIORITY_ONLY;
+static int keyCode_slider_bottom = MODE_NONE;
 
 struct switch_dev_data {
 	//tri_mode_t last_type;
@@ -92,27 +96,31 @@ static void send_input(int keyCode)
 static void switch_dev_work(struct work_struct *work)
 {
 	int keyCode;
+	int mode;
 	//printk("%s  gpio_get_value(%d)=%d\n",__func__,switch_data->key1_gpio,gpio_get_value(switch_data->key1_gpio));
 	//printk("%s  gpio_get_value(%d)=%d\n",__func__,switch_data->key2_gpio,gpio_get_value(switch_data->key2_gpio));
-	mutex_lock(&sem); 
+	mutex_lock(&sem);
 	if(!gpio_get_value(switch_data->key2_gpio))
 	{
-		current_mode = MODE_NORMAL;
+		mode = MODE_NORMAL;
 		keyCode = keyCode_slider_bottom;
 	}
 	else if(gpio_get_value(switch_data->key1_gpio))
 	{
-		current_mode = MODE_DO_NOT_DISTURB;
+		mode = MODE_DO_NOT_DISTURB;
 		keyCode = keyCode_slider_middle;
 	}
 	else
 	{
-		current_mode = MODE_MUTE;
+		mode = MODE_MUTE;
 		keyCode = keyCode_slider_top;
 	}
-	switch_set_state(&switch_data->sdev, current_mode);
-	send_input(keyCode);
-	printk("%s ,tristate set to state(%d) \n",__func__,switch_data->sdev.state);
+	if (current_mode != mode) {
+		current_mode = mode;
+		switch_set_state(&switch_data->sdev, current_mode);
+		send_input(keyCode);
+		printk("%s ,tristate set to state(%d) \n",__func__,switch_data->sdev.state);
+	}
 	mutex_unlock(&sem);
 }
 irqreturn_t switch_dev_interrupt(int irq, void *_dev)
@@ -455,9 +463,10 @@ static int tristate_dev_probe(struct platform_device *pdev)
 	switch_data->input->name = DRV_NAME;
 	switch_data->input->dev.parent = &pdev->dev;
 	set_bit(EV_KEY, switch_data->input->evbit);
-	set_bit(keyCode_slider_top, switch_data->input->keybit);
-	set_bit(keyCode_slider_middle, switch_data->input->keybit);
-	set_bit(keyCode_slider_bottom, switch_data->input->keybit);
+	set_bit(MODE_TOTAL_SILENCE, switch_data->input->keybit);
+	set_bit(MODE_ALARMS_ONLY, switch_data->input->keybit);
+	set_bit(MODE_PRIORITY_ONLY, switch_data->input->keybit);
+	set_bit(MODE_NONE, switch_data->input->keybit);
 	input_set_drvdata(switch_data->input, switch_data);
 	error = input_register_device(switch_data->input);
 	if (error) {
@@ -621,4 +630,5 @@ module_platform_driver(tristate_dev_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("switch Profiles by this triple key driver");
+
 
