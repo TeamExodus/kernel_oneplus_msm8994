@@ -172,6 +172,7 @@ enum msm_cpu {
 	MSM_CPU_TELLURIUM,
 	MSM_CPU_TERBIUM,
 	MSM_CPU_8929,
+	MSM_CPU_8996 = MSM_CPU_8929 + 10
 };
 
 struct msm_soc_info {
