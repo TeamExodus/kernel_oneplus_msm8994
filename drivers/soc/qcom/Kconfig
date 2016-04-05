@@ -614,6 +614,11 @@ config MSM_PACMAN
 	  This driver allows reconfiguration of the Bus Access Manager
 	  Low Speed Peripheral (BLSP) ownership.
 
+config ONEPLUS_HCUBE
+	tristate "Proprietary Core control drivers, tuned by Oneplus"
+	help
+	  Add support for OnePlus modified Qualcomm core control module
+
 config MSM_CORE_CTL_HELPER
 	tristate "Core control helper functions for dynamically hotplug CPUs"
 	help
