@@ -71,12 +71,7 @@ bool __refrigerator(bool check_kthr_stop)
 		spin_lock_irq(&freezer_lock);
 		current->flags |= PF_FROZEN;
 		if (!freezing(current) ||
-#ifdef VENDOR_EDIT
-//huruihuan add for kill task in D status
-            (check_kthr_stop && kthread_should_stop()) || current->kill_flag)
-#else
-            (check_kthr_stop && kthread_should_stop()) )
-#endif
+		    (check_kthr_stop && kthread_should_stop()))
 			current->flags &= ~PF_FROZEN;
 		spin_unlock_irq(&freezer_lock);
 
@@ -120,29 +115,6 @@ static void fake_signal_wake_up(struct task_struct *p)
  * RETURNS:
  * %false, if @p is not freezing or already frozen; %true, otherwise
  */
-#ifdef VENDOR_EDIT
-//huruihuan add for freezing task in cgroup despite of PF_FREEZER_SKIP flag
-bool freeze_cgroup_task(struct task_struct *p)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&freezer_lock, flags);
-	if (!freezing(p) || frozen(p)) {
-		spin_unlock_irqrestore(&freezer_lock, flags);
-		return false;
-	}
-
-	if (!(p->flags & PF_KTHREAD))
-		fake_signal_wake_up(p);
-	else
-		wake_up_state(p, TASK_INTERRUPTIBLE);
-
-	spin_unlock_irqrestore(&freezer_lock, flags);
-	return true;
-}
-
-#endif
-
 bool freeze_task(struct task_struct *p)
 {
 	unsigned long flags;
