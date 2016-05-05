@@ -197,6 +197,7 @@ dsi_jd35695_1080_cmd: qcom,mdss_dsi_jd35695_1080p_cmd {
 				qcom,mdss-dsi-pan-enable-dynamic-fps;
 				qcom,mdss-dsi-pan-fps-update = "dfps_immediate_porch_mode";
 				qcom,mdss-dsi-min-refresh-rate = <53>;
+				qcom,mdss-dsi-max-refresh-rate = <60>;
 
 			        qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 			        qcom,mdss-dsi-reset-sequence = <1 11>, <0 2>, <1 12>;
