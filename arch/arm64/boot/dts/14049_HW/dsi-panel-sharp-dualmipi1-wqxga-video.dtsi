@@ -57,6 +57,8 @@
 		qcom,mdss-dsi-reset-sequence = <1 2>, <0 5>, <1 120>;
 		qcom,mdss-pan-physical-width-dimension = <83>;
 		qcom,mdss-pan-physical-height-dimension = <133>;
+		qcom,mdss-dsi-pan-enable-dynamic-fps;
+		qcom,mdss-dsi-pan-fps-update = "dfps_immediate_porch_mode";
 		qcom,mdss-dsi-min-refresh-rate = <53>;
 		qcom,mdss-dsi-max-refresh-rate = <60>;
 		qcom,mdss-dsi-panel-status-check-mode = "bta_check";
