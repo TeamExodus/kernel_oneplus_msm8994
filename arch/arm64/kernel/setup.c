@@ -566,11 +566,8 @@ static int c_show(struct seq_file *m, void *v)
 
 	seq_puts(m, "\n");
 
-//default use machine_name which contain cpu version info
-//	if (!arch_read_hardware_id)
+	if (!arch_read_hardware_id)
 		seq_printf(m, "Hardware\t: %s\n", machine_name);
-//	else
-//		seq_printf(m, "Hardware\t: %s\n", arch_read_hardware_id());
 
 	return 0;
 }
