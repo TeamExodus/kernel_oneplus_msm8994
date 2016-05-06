@@ -1,4 +1,4 @@
 config ONEPLUS_HCUBE_HELPERS
-	default y
 	bool "Oneplus Helpers for H-Cube"
+	default n
 

@@ -615,7 +615,8 @@ config MSM_PACMAN
 	  Low Speed Peripheral (BLSP) ownership.
 
 config ONEPLUS_HCUBE
-	tristate "Proprietary Core control drivers, tuned by Oneplus"
+	depends on ONEPLUS_HCUBE_HELPERS
+	tristate "Proprietary Core control driver, tuned by Oneplus"
 	help
 	  Add support for OnePlus modified Qualcomm core control module
 
