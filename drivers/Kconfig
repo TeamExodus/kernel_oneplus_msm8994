@@ -190,7 +190,8 @@ source "drivers/soc/Kconfig"
 
 source "drivers/firmware/Kconfig"
 
-#ifdef VENDOR_EDIT
+source "drivers/op/Kconfig"
+
 # hefaxi@filesystem,2015/05/05,support param partion read/write
 source "drivers/param_read_write/Kconfig"
 #endif
@@ -200,5 +201,7 @@ source "drivers/param_read_write/Kconfig"
 source "drivers/oem_debug/Kconfig"
 #endif
 #end add by jiachenghui for support oem trace,2015/05/09
+
+
 
 endmenu

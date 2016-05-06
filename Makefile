@@ -1,6 +1,6 @@
 VERSION = 3
 PATCHLEVEL = 10
-SUBLEVEL = 49
+SUBLEVEL = 84
 EXTRAVERSION =
 NAME = TOSSUG Baby Fish
 
@@ -364,7 +364,6 @@ GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a) \
  -g0 \
  -DNDEBUG \
  -fomit-frame-pointer \
- -funsafe-math-optimizations \
  -fmodulo-sched \
  -fmodulo-sched-allow-regmoves \
  -fivopts
@@ -658,6 +657,8 @@ ifndef CONFIG_FUNCTION_TRACER
 KBUILD_CFLAGS	+= -fomit-frame-pointer
 endif
 endif
+
+KBUILD_CFLAGS   += $(call cc-option, -fno-var-tracking-assignments)
 
 ifdef CONFIG_DEBUG_INFO
 KBUILD_CFLAGS	+= -g
