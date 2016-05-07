@@ -29,7 +29,7 @@
 #include "mdss_debug.h"
 
 #define VSYNC_PERIOD 17
-#define DMA_TX_TIMEOUT 200
+#define DMA_TX_TIMEOUT 400
 #define DMA_TPG_FIFO_LEN 64
 
 struct mdss_dsi_ctrl_pdata *ctrl_list[DSI_CTRL_MAX];
@@ -1735,6 +1735,7 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 	char *bp;
 	struct mdss_dsi_ctrl_pdata *mctrl = NULL;
 	int ignored = 0;	/* overflow ignored */
+	int iommu_attached = 0;
 
 	bp = tp->data;
 
@@ -1753,6 +1754,7 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 			return -ENOMEM;
 		}
 		ctrl->dmap_iommu_map = true;
+		iommu_attached = 1;
 	} else {
 		ctrl->dma_addr = tp->dmap;
 	}
@@ -1830,7 +1832,7 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 			/* restore overflow isr */
 			mdss_dsi_set_reg(mctrl, 0x10c, 0x0f0000, 0);
 		}
-		if (mctrl->dmap_iommu_map) {
+		if (ctrl->dmap_iommu_map && (iommu_attached == 1))
 			msm_iommu_unmap_contig_buffer(mctrl->dma_addr,
 				mctrl->mdss_util->get_iommu_domain(domain),
 							0, mctrl->dma_size);
@@ -2326,7 +2328,7 @@ static int dsi_event_thread(void *data)
 	u32 arg;
 	int ret;
 
-	param.sched_priority = 16;
+	param.sched_priority = 17;
 	ret = sched_setscheduler_nocheck(current, SCHED_FIFO, &param);
 	if (ret)
 		pr_err("%s: set priority failed\n", __func__);
