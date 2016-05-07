@@ -1843,7 +1843,7 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 			/* restore overflow isr */
 			mdss_dsi_set_reg(mctrl, 0x10c, 0x0f0000, 0);
 		}
-		if (ctrl->dmap_iommu_map && (iommu_attached == 1))
+		if (ctrl->dmap_iommu_map && (iommu_attached == 1)) {
 			msm_iommu_unmap_contig_buffer(mctrl->dma_addr,
 				mctrl->mdss_util->get_iommu_domain(domain),
 							0, mctrl->dma_size);
