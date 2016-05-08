@@ -708,9 +708,7 @@ static int qpnp_hap_sc_deb_config(struct qpnp_hap *hap)
 		temp = fls(hap->sc_deb_cycles) - 1;
 		reg |= temp - QPNP_HAP_SC_DEB_SUB;
 	}
-	//add by shankai
-	else
-		reg = 0;
+
 	rc = qpnp_hap_write_reg(hap, &reg, QPNP_HAP_SC_DEB_REG(hap->base));
 	if (rc)
 		return rc;
