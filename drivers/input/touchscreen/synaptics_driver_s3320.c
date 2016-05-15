@@ -3326,7 +3326,7 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 
 	push_component_info(TP, ts->fw_id, ts->manu_name);
 
-	synaptics_wq = create_singlethread_workqueue("synaptics_wq");
+	synaptics_wq = alloc_ordered_workqueue("synaptics_wq", WQ_MEM_RECLAIM | WQ_HIGHPRI);
 	if( !synaptics_wq ){
 		ret = -ENOMEM;
 		goto exit_createworkqueue_failed;
