@@ -567,9 +567,16 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 				(long)(PAGE_SIZE / 1024) +
 			     global_page_state(NR_SLAB_UNRECLAIMABLE) *
 				(long)(PAGE_SIZE / 1024),
-                 global_page_state(NR_ANON_PAGES) *
-                 (long)(PAGE_SIZE / 1024),
+               		     global_page_state(NR_ANON_PAGES) *
+              			(long)(PAGE_SIZE / 1024),
+			     global_page_state(NR_ION_PAGES) *
+				(long)(PAGE_SIZE / 1024),
+			     global_page_state(NR_ION_POOL_PAGES) *
+				(long)(PAGE_SIZE / 1024),
+			     global_page_state(NR_ION_CMA_PAGES) *
+				(long)(PAGE_SIZE / 1024),
 			     sc->gfp_mask);
+
 
 #else
 	if (selected) {
