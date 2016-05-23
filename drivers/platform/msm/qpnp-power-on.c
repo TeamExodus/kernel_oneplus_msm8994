@@ -30,10 +30,6 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/qpnp/power-on.h>
 
-#ifdef VENDOR_EDIT
-/*Add by yangrujin@bsp 2015/7/30, fix SND-8480 avoid : sometimes, device will goto sleep without respond PWR KEY event*/
-#include <linux/wakelock.h>
-#endif
 
 #ifdef VENDOR_EDIT
 //hefaxi@filesystems, 2015/07/03, add for force dump function
@@ -197,10 +193,6 @@ struct qpnp_pon {
 
 static struct qpnp_pon *sys_reset_dev;
 
-#ifdef VENDOR_EDIT
-/*Add by yangrujin@bsp 2015/7/30, fix SND-8480 avoid : sometimes, device will goto sleep without respond PWR KEY event*/
-static struct wake_lock pwr_wakelock;
-#endif
 
 static DEFINE_MUTEX(spon_list_mutex);
 static LIST_HEAD(spon_dev_list);
@@ -882,10 +874,7 @@ static irqreturn_t qpnp_kpdpwr_irq(int irq, void *_pon)
 {
 	int rc;
 	struct qpnp_pon *pon = _pon;
-#ifdef VENDOR_EDIT
-/*Add by yangrujin@bsp 2015/7/30, fix SND-8480 avoid : sometimes, device will goto sleep without respond PWR KEY event*/
-	wake_lock_timeout(&pwr_wakelock, HZ);
-#endif
+
 	rc = qpnp_pon_input_dispatch(pon, PON_KPDPWR);
 	if (rc)
 		dev_err(&pon->spmi->dev, "Unable to send input event\n");
@@ -1210,10 +1199,7 @@ qpnp_pon_request_irqs(struct qpnp_pon *pon, struct qpnp_pon_config *cfg)
 
 	switch (cfg->pon_type) {
 	case PON_KPDPWR:
-#ifdef VENDOR_EDIT
-/*Add by yangrujin@bsp 2015/7/30, fix SND-8480 avoid : sometimes, device will goto sleep without respond PWR KEY event*/
-		wake_lock_init(&pwr_wakelock, WAKE_LOCK_SUSPEND, "pwr_key");
-#endif
+
 		rc = devm_request_irq(&pon->spmi->dev, cfg->state_irq,
 							qpnp_kpdpwr_irq,
 				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
@@ -2233,10 +2219,7 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 static int qpnp_pon_remove(struct spmi_device *spmi)
 {
 	struct qpnp_pon *pon = dev_get_drvdata(&spmi->dev);
-#ifdef VENDOR_EDIT
-/*Add by yangrujin@bsp 2015/7/30, fix SND-8480 avoid : sometimes, device will goto sleep without respond PWR KEY event*/
-	wake_lock_destroy(&pwr_wakelock);
-#endif
+
 	device_remove_file(&spmi->dev, &dev_attr_debounce_us);
 
 	cancel_delayed_work_sync(&pon->bark_work);
