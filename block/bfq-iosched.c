@@ -95,7 +95,7 @@ static const int bfq_async_charge_factor = 10;
 
 /* Default timeout values, in jiffies, approximating CFQ defaults. */
 static const int bfq_timeout_sync = HZ / 8;
-static int bfq_timeout_async = HZ / 25;
+static int bfq_timeout_async = 12;
 
 struct kmem_cache *bfq_pool;
 
