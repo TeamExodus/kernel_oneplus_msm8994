@@ -339,7 +339,6 @@ static void __init setup_machine_fdt(phys_addr_t dt_phys)
 	if (machine_name) {
 		dump_stack_set_arch_desc("%s (DT)", machine_name);
 		pr_info("Machine: %s\n", machine_name);
-	}
 }
 
 /*
