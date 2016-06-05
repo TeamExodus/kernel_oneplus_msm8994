@@ -359,7 +359,7 @@ CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 
 # fall back to -march=armv8-a in case the compiler isn't compatible 
 # with -mcpu
-ARM_ARCH_OPT := -mcpu=cortex-a53
+ARM_ARCH_OPT := -mcpu=cortex-a57.cortex-a53
 GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a) \
  -g0 \
  -DNDEBUG \
