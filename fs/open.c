@@ -33,7 +33,6 @@
 #include <linux/compat.h>
 
 #include "internal.h"
-#include "../kernel/sched/sched.h"
 
 int do_truncate(struct dentry *dentry, loff_t length, unsigned int time_attrs,
 	struct file *filp)
@@ -923,7 +922,6 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 	struct filename *tmp = getname(filename);
 	int fd = PTR_ERR(tmp);
 
-	skip_cfs_throttle(1);
 	if (!IS_ERR(tmp)) {
 		fd = get_unused_fd_flags(flags);
 		if (fd >= 0) {
@@ -938,7 +936,6 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 		}
 		putname(tmp);
 	}
-	skip_cfs_throttle(0);
 	return fd;
 }
 
