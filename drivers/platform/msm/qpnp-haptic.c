@@ -323,13 +323,6 @@ struct qpnp_hap {
 };
 
 static struct qpnp_hap *ghap;
-/*shankai  2015-07-7 add begin for optimizing the response speed of the
-vibrator*/
-#ifdef VENDOR_EDIT
-static struct workqueue_struct *vibqueue;
-#endif //VENDOR_EDIT
-/*shankai  2015-07-7 add end for optimizing the response speed of the
-vibrator*/
 
 /* helper to read a pmic register */
 static int qpnp_hap_read_reg(struct qpnp_hap *hap, u8 *data, u16 addr)
@@ -1254,45 +1247,6 @@ static ssize_t qpnp_hap_ramp_test_data_show(struct device *dev,
 
 }
 
-static ssize_t qpnp_hap_vmax_mv_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct timed_output_dev *timed_dev = dev_get_drvdata(dev);
-	struct qpnp_hap *hap = container_of(timed_dev, struct qpnp_hap,
-					 timed_dev);
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", hap->vmax_mv);
-}
-
-static ssize_t qpnp_hap_vmax_mv_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	struct timed_output_dev *timed_dev = dev_get_drvdata(dev);
-	struct qpnp_hap *hap = container_of(timed_dev, struct qpnp_hap,
-					 timed_dev);
-	u32 data;
-	int rc;
-
-	if (sscanf(buf, "%d", &data) != 1)
-		return -EINVAL;
-
-	if (data < QPNP_HAP_VMAX_MIN_MV) {
-		pr_err("%s: mv %d not in range (%d - %d), using min.", __func__, data, QPNP_HAP_VMAX_MIN_MV, QPNP_HAP_VMAX_MAX_MV);
-		data = QPNP_HAP_VMAX_MIN_MV;
-	} else if (data > QPNP_HAP_VMAX_MAX_MV) {
-		pr_err("%s: mv %d not in range (%d - %d), using max.", __func__, data, QPNP_HAP_VMAX_MIN_MV, QPNP_HAP_VMAX_MAX_MV);
-		data = QPNP_HAP_VMAX_MAX_MV;
-	}
-
-	hap->vmax_mv = data;
-	rc = qpnp_hap_vmax_config(hap);
-	if (rc)
-		pr_info("qpnp: error while writing vibration control register\n");
-
-	return strnlen(buf, count);
-}
-
-
 /* sysfs attributes */
 static struct device_attribute qpnp_hap_attrs[] = {
 	__ATTR(wf_s0, (S_IRUGO | S_IWUSR | S_IWGRP),
@@ -1559,9 +1513,6 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int value)
 		}
 		hap->state = 0;
 	} else {
-
-		if (value < 50)
-			value += 29;
 		value = (value > hap->timeout_ms ?
 				 hap->timeout_ms : value);
 		hap->state = 1;
@@ -1569,15 +1520,8 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int value)
 			      ktime_set(value / 1000, (value % 1000) * 1000000),
 			      HRTIMER_MODE_REL);
 	}
-	#ifndef VENDOR_EDIT
 	mutex_unlock(&hap->lock);
 	schedule_work(&hap->work);
-	#else //#ifdef VENDOR_EDIT
-	queue_work(vibqueue,&hap->work);
-	msleep(1);
-	mutex_unlock(&hap->lock);
-	#endif //VENDOR_EDIT
-	/* shankai 2015-07-7 modify end for optimizing the response speed of the vibrator*/
 }
 
 /* play pwm bytes */
@@ -1669,14 +1613,8 @@ static enum hrtimer_restart qpnp_hap_timer(struct hrtimer *timer)
 							 hap_timer);
 
 	hap->state = 0;
-	/*shankai@bsp.2015-07-16 modify begin for optimizing the response speed of the vibrator*/
-#ifndef VENDOR_EDIT
 	schedule_work(&hap->work);
-#else
-	//#ifdef VENDOR_EDIT
-	queue_work(vibqueue,&hap->work);
-#endif //VENDOR_EDIT
-	/*shankai@bsp.2015-07-16 modify end for optimizing the response speed of the vibrator*/
+
 	return HRTIMER_NORESTART;
 }
 
@@ -2203,11 +2141,6 @@ static int qpnp_haptic_probe(struct spmi_device *spmi)
 
 	mutex_init(&hap->lock);
 	mutex_init(&hap->wf_lock);
-
-	#ifdef VENDOR_EDIT
-	vibqueue = create_singlethread_workqueue("vibthread");
-	#endif //VENDOR_EDIT
-
 	INIT_WORK(&hap->work, qpnp_hap_worker);
 	init_completion(&hap->completion);
 
