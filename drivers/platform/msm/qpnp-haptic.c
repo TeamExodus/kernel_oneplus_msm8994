@@ -1344,6 +1344,9 @@ static struct device_attribute qpnp_hap_attrs[] = {
 	__ATTR(min_max_test, (S_IRUGO | S_IWUSR | S_IWGRP),
 			qpnp_hap_min_max_test_data_show,
 			qpnp_hap_min_max_test_data_store),
+	__ATTR(vmax_mv, (S_IRUGO | S_IWUSR | S_IWGRP),
+			qpnp_hap_vmax_mv_show,
+			qpnp_hap_vmax_mv_store),
 };
 
 static void calculate_lra_code(struct qpnp_hap *hap)
