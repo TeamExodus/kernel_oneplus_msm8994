@@ -184,3 +184,4 @@ obj-$(CONFIG_OEM_DEBUG_SUPORT) 	+= oem_debug/
 #ted_lin@PerfLab add for op helper function
 obj-y += op/
 #endif
+obj-y += htc_debug/

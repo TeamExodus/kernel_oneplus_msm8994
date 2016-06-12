@@ -1312,6 +1312,10 @@ struct super_block {
 
 	/* Being remounted read-only */
 	int s_readonly_remount;
+
+
+#define FLAG_ASYNC_FSYNC       0x1
+	unsigned int fsync_flags;
 };
 
 /* superblock cache pruning functions */
