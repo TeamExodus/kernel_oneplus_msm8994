@@ -1568,7 +1568,7 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int value)
 		hap->state = 0;
 	} else {
 		if (value < 50)		
-			value += 20;
+			value += 25;
 		value = (value > hap->timeout_ms ?
 				 hap->timeout_ms : value);
 		hap->state = 1;
