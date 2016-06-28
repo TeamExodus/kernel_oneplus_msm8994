@@ -360,13 +360,10 @@ CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 # fall back to -march=armv8-a in case the compiler isn't compatible 
 # with -mcpu
 ARM_ARCH_OPT := -mcpu=cortex-a57.cortex-a53
-GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a) \
+GEN_OPT_FLAGS := \
+  $(ARM_ARCH_OPT) \
  -g0 \
- -DNDEBUG \
- -fomit-frame-pointer \
- -fmodulo-sched \
- -fivopts
-
+ -DNDEBUG
 
 # Use USERINCLUDE when you must reference the UAPI directories only.
 USERINCLUDE    := \
