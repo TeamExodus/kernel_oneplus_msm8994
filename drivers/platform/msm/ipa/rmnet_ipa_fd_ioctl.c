@@ -120,32 +120,8 @@ static long wan_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 
-	case WAN_IOC_VOTE_FOR_BW_MBPS:
-		IPAWANDBG("device %s got WAN_IOC_VOTE_FOR_BW_MBPS :>>>\n",
-		DRIVER_NAME);
-		pyld_sz = sizeof(uint32_t);
-		param = kzalloc(pyld_sz, GFP_KERNEL);
-		if (!param) {
-			retval = -ENOMEM;
-			break;
-		}
-		if (copy_from_user(param, (u8 *)arg, pyld_sz)) {
-			retval = -EFAULT;
-			break;
-		}
-		if (vote_for_bus_bw((uint32_t *)param)) {
-			IPAWANERR("Failed to vote for bus BW\n");
-			retval = -EFAULT;
-			break;
-		}
-		if (copy_to_user((u8 *)arg, param, pyld_sz)) {
-			retval = -EFAULT;
-			break;
-		}
-		break;
-
 	case WAN_IOC_POLL_TETHERING_STATS:
-		IPAWANDBG("device %s got WAN_IOCTL_POLL_TETHERING_STATS :>>>\n",
+		IPAWANERR("device %s got WAN_IOCTL_POLL_TETHERING_STATS :>>>\n",
 			  DRIVER_NAME);
 		pyld_sz = sizeof(struct wan_ioctl_poll_tethering_stats);
 		param = kzalloc(pyld_sz, GFP_KERNEL);
@@ -157,12 +133,14 @@ static long wan_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
+
 		if (rmnet_ipa_poll_tethering_stats(
 		(struct wan_ioctl_poll_tethering_stats *)param)) {
 			IPAWANERR("WAN_IOCTL_POLL_TETHERING_STATS failed\n");
 			retval = -EFAULT;
 			break;
 		}
+
 		if (copy_to_user((u8 *)arg, param, pyld_sz)) {
 			retval = -EFAULT;
 			break;
@@ -170,7 +148,7 @@ static long wan_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	case WAN_IOC_SET_DATA_QUOTA:
-		IPAWANDBG("device %s got WAN_IOCTL_SET_DATA_QUOTA :>>>\n",
+		IPAWANERR("device %s got WAN_IOCTL_SET_DATA_QUOTA :>>>\n",
 			  DRIVER_NAME);
 		pyld_sz = sizeof(struct wan_ioctl_set_data_quota);
 		param = kzalloc(pyld_sz, GFP_KERNEL);
@@ -182,12 +160,14 @@ static long wan_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
+
 		if (rmnet_ipa_set_data_quota(
 		(struct wan_ioctl_set_data_quota *)param)) {
 			IPAWANERR("WAN_IOC_SET_DATA_QUOTA failed\n");
 			retval = -EFAULT;
 			break;
 		}
+
 		if (copy_to_user((u8 *)arg, param, pyld_sz)) {
 			retval = -EFAULT;
 			break;

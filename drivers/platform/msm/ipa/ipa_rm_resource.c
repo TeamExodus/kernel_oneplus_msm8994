@@ -105,7 +105,6 @@ int ipa_rm_resource_consumer_release_work(
 		else
 			consumer->resource.state = IPA_RM_RELEASED;
 	}
-	complete_all(&consumer->request_consumer_in_progress);
 
 	ipa_rm_perf_profile_change(consumer->resource.name);
 bail:
@@ -157,7 +156,6 @@ int ipa_rm_resource_consumer_request(
 	switch (consumer->resource.state) {
 	case IPA_RM_RELEASED:
 	case IPA_RM_RELEASE_IN_PROGRESS:
-		INIT_COMPLETION(consumer->request_consumer_in_progress);
 		consumer->resource.state = IPA_RM_REQUEST_IN_PROGRESS;
 		if (prev_state == IPA_RM_RELEASE_IN_PROGRESS ||
 				ipa_inc_client_enable_clks_no_block() != 0) {
@@ -355,7 +353,6 @@ static int ipa_rm_resource_consumer_create(struct ipa_rm_resource **resource,
 	(*consumer)->release_resource = create_params->release_resource;
 	(*resource) = (struct ipa_rm_resource *) (*consumer);
 	(*resource)->type = IPA_RM_CONSUMER;
-	init_completion(&((*consumer)->request_consumer_in_progress));
 	*max_peers = IPA_RM_RESOURCE_PROD_MAX;
 bail:
 	return result;
@@ -658,8 +655,8 @@ bail:
  * @depends_on: [in] depends_on resource
  *
  * Returns: 0 on success, negative on failure
- * In case the resource state was changed, a notification
- * will be sent to the RM client
+ * EINPROGRESS is returned in case this is the last dependency
+ * of given resource and IPA RM client should receive the RELEASED cb
  */
 int ipa_rm_resource_delete_dependency(struct ipa_rm_resource *resource,
 				   struct ipa_rm_resource *depends_on)
@@ -725,11 +722,13 @@ int ipa_rm_resource_delete_dependency(struct ipa_rm_resource *resource,
 		result = -EINVAL;
 		goto bail;
 	}
-	if (state_changed) {
+	if (state_changed &&
+		ipa_rm_peers_list_has_last_peer(resource->peers_list)) {
 		(void) ipa_rm_wq_send_cmd(IPA_RM_WQ_NOTIFY_PROD,
 				resource->name,
 				evt,
 				false);
+		result = -EINPROGRESS;
 	}
 	IPA_RM_DBG("%s new state: %d\n", ipa_rm_resource_str(resource->name),
 					resource->state);
@@ -976,7 +975,6 @@ void ipa_rm_resource_consumer_handle_cb(struct ipa_rm_resource_cons *consumer,
 		consumer->resource.state = IPA_RM_GRANTED;
 		ipa_rm_perf_profile_change(consumer->resource.name);
 		ipa_resume_resource(consumer->resource.name);
-		complete_all(&consumer->request_consumer_in_progress);
 		break;
 	case IPA_RM_RELEASE_IN_PROGRESS:
 		if (event == IPA_RM_RESOURCE_GRANTED)

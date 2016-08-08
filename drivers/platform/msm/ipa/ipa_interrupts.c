@@ -53,7 +53,7 @@ static bool is_valid_ep(u32 ep_suspend_data)
 	u32 bmsk = 1;
 	u32 i = 0;
 
-	for (i = 0; i < ipa_ctx->ipa_num_pipes; i++) {
+	for (i = 0; i < IPA_NUM_PIPES; i++) {
 		if ((ep_suspend_data & bmsk) && (ipa_ctx->ep[i].valid))
 			return true;
 		bmsk = bmsk << 1;
@@ -61,7 +61,7 @@ static bool is_valid_ep(u32 ep_suspend_data)
 	return false;
 }
 
-static int handle_interrupt(enum ipa_irq_type interrupt, bool isr_context)
+static int handle_interrupt(enum ipa_irq_type interrupt)
 {
 	struct ipa_interrupt_info interrupt_info;
 	struct ipa_interrupt_work_wrap *work_data;
@@ -97,8 +97,7 @@ static int handle_interrupt(enum ipa_irq_type interrupt, bool isr_context)
 		break;
 	}
 
-	/* Force defer processing if in ISR context. */
-	if (interrupt_info.deferred_flag || isr_context) {
+	if (interrupt_info.deferred_flag) {
 		work_data = kzalloc(sizeof(struct ipa_interrupt_work_wrap),
 				GFP_ATOMIC);
 		if (!work_data) {
@@ -126,7 +125,7 @@ fail_alloc_work:
 	return res;
 }
 
-static void ipa_process_interrupts(bool isr_context)
+static void ipa_process_interrupts(void)
 {
 	u32 reg;
 	u32 bmsk;
@@ -136,27 +135,14 @@ static void ipa_process_interrupts(bool isr_context)
 	en = ipa_read_reg(ipa_ctx->mmio, IPA_IRQ_EN_EE_n_ADDR(ipa_ee));
 	reg = ipa_read_reg(ipa_ctx->mmio, IPA_IRQ_STTS_EE_n_ADDR(ipa_ee));
 	while (en & reg) {
-		/*
-		* Clear interrupt before processing to avoid
-		* clearing unhandled interrupts
-		*/
-		ipa_write_reg(ipa_ctx->mmio,
-				IPA_IRQ_CLR_EE_n_ADDR(ipa_ee), reg);
-
-		/*
-		* Process the interrupts
-		*/
 		bmsk = 1;
 		for (i = 0; i < IPA_IRQ_MAX; i++) {
 			if (en & reg & bmsk)
-				handle_interrupt(i, isr_context);
+				handle_interrupt(i);
 			bmsk = bmsk << 1;
 		}
-
-		/*
-		* Check pending interrupts that may have
-		* been raised since last read
-		*/
+		ipa_write_reg(ipa_ctx->mmio,
+				IPA_IRQ_CLR_EE_n_ADDR(ipa_ee), reg);
 		reg = ipa_read_reg(ipa_ctx->mmio,
 				IPA_IRQ_STTS_EE_n_ADDR(ipa_ee));
 	}
@@ -166,7 +152,7 @@ static void ipa_interrupt_defer(struct work_struct *work)
 {
 	IPADBG("processing interrupts in wq\n");
 	ipa_inc_client_enable_clks();
-	ipa_process_interrupts(false);
+	ipa_process_interrupts();
 	ipa_dec_client_disable_clks();
 	IPADBG("Done\n");
 }
@@ -188,7 +174,7 @@ static irqreturn_t ipa_isr(int irq, void *ctxt)
 		goto bail;
 	}
 
-	ipa_process_interrupts(true);
+	ipa_process_interrupts();
 
 bail:
 	ipa_active_clients_trylock_unlock(&flags);
